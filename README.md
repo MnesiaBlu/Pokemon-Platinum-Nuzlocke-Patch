@@ -58,8 +58,19 @@ Implementa la regola fondamentale della morte permanente: i Pokémon esausti non
   - I Pokémon esausti rimangono a 0 HP, con status esausto e PP inalterati, costringendo il giocatore a depositarli in un box PC cimitero o liberarli come da regolamento Nuzlocke.
   - In caso di sconfitta totale (black out), il giocatore riappare al Centro Pokémon con i Pokémon esausti intatti e può recarsi direttamente al terminale PC per depositare la squadra caduta.
 
----
+### 4. Starter da Trainer ID (`feature/starter-by-tid`)
+Determina la scelta obbligatoria dello starter in base all'ultima cifra del Trainer ID (TID) visualizzato sulla Scheda Allenatore:
+- **Cifra finale 1, 2, 3:** Pokémon Erba (**Turtwig**)
+- **Cifra finale 4, 5, 6:** Pokémon Fuoco (**Chimchar**)
+- **Cifra finale 7, 8, 9:** Pokémon Acqua (**Piplup**)
+- **Cifra finale 0:** **Scelta libera** tra tutti e tre gli starter
 
+#### Come funziona tecnicamente:
+1. Nella scena della valigetta del Lago Verità (Overlay 78, `choose_starter`), il cursore viene inizializzato direttamente sulla Poké Ball assegnata dal TID del giocatore.
+2. La navigazione sinistra/destra (`ChangePokeballChoice`) viene bloccata sulla Poké Ball assegnata se la cifra non è 0, impedendo di selezionare un altro starter.
+3. Al momento della conferma (`GetSelectedSpecies` / `ChooseStarter_Exit`), il gioco restituisce tassativamente la specie associata al TID (Turtwig: 387, Chimchar: 390, Piplup: 393), garantendo che la sceneggiatura, la consegna al giocatore e la squadra del rivale Barry rimangano perfettamente sincronizzate.
+
+---
 
 ## Utilizzo del Patcher
 
@@ -70,7 +81,27 @@ Per applicare le modifiche alla tua ROM pulita di Pokémon Platino:
    ```bash
    python apply_patch.py
    ```
-3. La ROM patchata verrà generata automaticamente nella cartella `out/Pokemon_Platino_Nuzlocke.nds`.
+3. Se eseguito in un terminale interattivo, apparirà il **Selettore Interattivo delle Funzionalità**:
+   ```text
+   =================================================================
+             POKEMON PLATINO - NUZLOCKE FEATURE SELECTOR
+   =================================================================
+   Seleziona le funzionalita da includere nella patch:
+
+     [X] 1. Level Cap Dinamico
+     [X] 2. First Encounter Only
+     [X] 3. Permadeath Completo
+     [X] 4. Starter da Trainer ID
+
+   Comandi:
+     - Digita il numero (1-4) per attivare/disattivare
+     - 'a' per attivare tutte | 'n' per disattivare tutte
+     - Premi INVIO per confermare e procedere con il patch
+     - 'q' per uscire senza applicare
+   ```
+   Puoi digitare ad esempio `1` per disattivare il Level Cap (diventa `[ ]`), o premere semplicemente Invio per confermare la selezione predefinita con tutte le funzionalità attive!
+
+4. La ROM patchata verrà generata automaticamente nella cartella `out/Pokemon_Platino_Nuzlocke.nds`.
 
 ### Opzioni avanzate della CLI:
 ```bash
@@ -80,11 +111,14 @@ python apply_patch.py --info
 # Modalità test senza scrivere il file di output
 python apply_patch.py --dry-run
 
-# Specificare percorsi personalizzati
-python apply_patch.py --rom "percorso/alla/tua/rom.nds" --output "percorso/output.nds"
+# Forzare il menu interattivo
+python apply_patch.py -i
 
-# Selezionare specifiche feature
-python apply_patch.py --features level-cap
+# Modalità non-interattiva / scripting (applica tutte le feature)
+python apply_patch.py --non-interactive
+
+# Selezionare specifiche feature direttamente da riga di comando
+python apply_patch.py --features level-cap permadeath starter-by-tid
 ```
 
 ---
