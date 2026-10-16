@@ -1,87 +1,87 @@
-# Pokémon Platino Nuzlocke Patcher
+# Pokémon Platinum Nuzlocke Patcher
 
-Toolkit modulare in Python per generare una ROM modificata di **Pokémon Versione Platino (Italiano - CPUI)** con le regole standard della sfida Nuzlocke applicate a livello di engine di gioco.
+A modular Python toolkit to generate a patched ROM of **Pokémon Platinum Version (Italian - CPUI)** with standard Nuzlocke challenge rules enforced directly at the game engine level.
 
 > [!NOTE]
-> Questo repository include esclusivamente il codice sorgente del **patcher** e le definizioni di patch/hook in assembly ARM/Thumb. Nessuna ROM o asset protetto da copyright è distribuito o tracciato nel repository Git.
+> This repository strictly contains the source code for the **patcher** tool and ARM/Thumb assembly hooks. No copyrighted ROM files or Nintendo assets are distributed or tracked within this Git repository.
 
 ---
 
-## Requisiti
+## Requirements
 
 - **Python 3.10+**
-- Dipendenze (installabili con `pip`):
+- Dependencies (installable via `pip`):
   ```bash
   pip install -r requirements.txt
   ```
-  Le librerie utilizzate sono:
-  - [`ndspy`](https://github.com/RoadrunnerW/ndspy): disassemblaggio, manipolazione e repack della ROM NDS e dei suoi overlay/file system.
-  - [`keystone-engine`](https://www.keystone-engine.org/): assemblaggio al volo del codice ARM/Thumb.
-  - [`capstone`](https://www.capstone-engine.org/): disassemblaggio e verifica delle istruzioni di memoria.
+  Core libraries used:
+  - [`ndspy`](https://github.com/RoadrunnerW/ndspy): Disassembly, manipulation, and repackaging of NDS ROMs, file systems, and overlays.
+  - [`keystone-engine`](https://www.keystone-engine.org/): Dynamic on-the-fly ARM/Thumb assembly generation.
+  - [`capstone`](https://www.capstone-engine.org/): Disassembly and memory instruction verification.
 
 ---
 
-## Funzionalità
+## Features
 
-### 1. Level Cap Dinamico (`feature/level-cap`)
-Impedisce ai Pokémon della squadra di superare il livello del Pokémon più forte del prossimo Capopalestra o della Lega Pokémon:
-- **1ª Medaglia (Pedro / Mineraria):** Livello massimo **14** *(Cranidos)*
-- **2ª Medaglia (Gardenia / Bosco):** Livello massimo **22** *(Roserade)*
-- **3ª Medaglia (Fannie / Vestigia):** Livello massimo **26** *(Mismagius)*
-- **4ª Medaglia (Marzia / Ciottolo):** Livello massimo **32** *(Lucario)*
-- **5ª Medaglia (Omar / Pantano):** Livello massimo **37** *(Floatzel)*
-- **6ª Medaglia (Ferruccio / Cava):** Livello massimo **41** *(Bastiodon)*
-- **7ª Medaglia (Bianca / Ghiacciolo):** Livello massimo **44** *(Froslass)*
-- **8ª Medaglia (Corrado / Faro):** Livello massimo **50** *(Electivire)*
-- **Lega Pokémon (Campionessa Camilla):** Livello massimo **62** *(Garchomp)*
-- **Post-Lega (Storia principale completata):** Cap sbloccato a **100**
+### 1. Dynamic Level Cap (`feature/level-cap`)
+Prevents party Pokémon from exceeding the level of the upcoming Gym Leader's or Pokémon League Champion's ace:
+- **1st Badge (Roark / Oreburgh Gym):** Max level **14** *(Cranidos)*
+- **2nd Badge (Gardenia / Eterna Gym):** Max level **22** *(Roserade)*
+- **3rd Badge (Fantina / Hearthome Gym):** Max level **26** *(Mismagius)*
+- **4th Badge (Maylene / Veilstone Gym):** Max level **32** *(Lucario)*
+- **5th Badge (Crasher Wake / Pastoria Gym):** Max level **37** *(Floatzel)*
+- **6th Badge (Byron / Canalave Gym):** Max level **41** *(Bastiodon)*
+- **7th Badge (Candice / Snowpoint Gym):** Max level **44** *(Froslass)*
+- **8th Badge (Volkner / Sunyshore Gym):** Max level **50** *(Electivire)*
+- **Pokémon League (Champion Cynthia):** Max level **62** *(Garchomp)*
+- **Post-Game (Main story completed):** Level cap uncapped to **100**
 
-#### Come funziona tecnicamente:
-1. All'inizio dell'assegnazione dell'esperienza in battaglia (`BattleScript_GetExpTask`), viene controllato il livello del Pokémon rispetto al cap calcolato dinamicamente in base alle medaglie salvate nel `TrainerInfo`. Se il Pokémon è già al cap o superiore, l'EXP guadagnata è pari a 0 e il ciclo viene saltato immediatamente.
-2. Se un Pokémon è sotto il cap ma l'esperienza vinta lo farebbe salire oltre il livello consentito, l'esperienza viene troncata esattamente alla soglia necessaria per raggiungere il livello cap con 0 punti in eccesso.
+#### Technical Details:
+1. At the beginning of battle experience distribution (`BattleScript_GetExpTask`), the Pokémon's current level is evaluated against the dynamically calculated level cap based on badges stored in `TrainerInfo`. If the Pokémon has reached or exceeded the cap, gained EXP is set to 0 and the loop terminates immediately.
+2. If a Pokémon is below the cap but the EXP rewarded would cause it to level up past the cap, the awarded EXP is clamped to the exact threshold needed to reach the cap with 0 excess points.
 
-### 2. Primo Incontro per Percorso (`feature/first-encounter`)
-Impone la regola classica del Nuzlocke: è possibile catturare un solo Pokémon per percorso/area.
-- Quando il giocatore tenta di lanciare una Poké Ball su un Pokémon selvatico:
-  - Il gioco scansiona la **Squadra** (Party) e tutti i **Box del PC** alla ricerca di un Pokémon il cui luogo di cattura (`MON_DATA_MET_LOCATION`) coincida con l'area attuale (`mapHeader` / `mapLabelTextID`).
-  - Se un Pokémon di quell'area è già presente (in squadra o nei box, inclusi starter, Pokémon dono o Pokémon svenuti nel box cimitero), la cattura viene **bloccata**: la Ball effettua 0 oscillazioni e il Pokémon selvatico si libera immediatamente con il messaggio nativo *"Oh no! Il Pokémon si è liberato!"*.
-  - La cattura guidata del tutorial (Lucas/Dawn sul Percorso 202) e il Parco Amici sono preservati e non vengono bloccati.
+### 2. First Encounter Only (`feature/first-encounter`)
+Enforces the quintessential Nuzlocke rule: players may only capture one Pokémon per route or area.
+- Whenever the player throws any Poké Ball at a wild Pokémon:
+  - The game scans the **Party** and all **PC Boxes** to verify if any existing Pokémon shares the same met location (`MON_DATA_MET_LOCATION`) as the current route/area (`mapHeader` / `mapLabelTextID`).
+  - If a Pokémon from that location is already present (in the party or PC boxes, including gift Pokémon, starters, or fainted graveyard mons), the catch is **blocked**: the Ball shakes 0 times and the wild Pokémon breaks out immediately with the native game message *"Oh no! The Pokémon broke free!"*.
+  - Catching tutorial sequences (e.g. Lucas/Dawn on Route 202) and Pal Park transfers are preserved and never blocked.
 
 ### 3. Permadeath (`feature/permadeath`)
-Implementa la regola fondamentale della morte permanente: i Pokémon esausti non possono più essere resuscitati.
-- **Blocco totale degli strumenti di rianimazione**:
-  - *Revitalizzante*, *Revitalizzante Max*, *Erba Revitalizzante* e *Ceneremagica* hanno i loro attributi di rianimazione azzerati a livello di dati (`pl_item_data.narc`).
-  - L'uso di questi strumenti (sia durante la lotta che dalla borsa fuori dalla lotta) viene rifiutato con il messaggio *"Non ha alcun effetto!"*.
-  - Anche l'uso di *Caramelle Rare* su Pokémon a 0 HP viene intercettato e bloccato in `Party_CheckItemEffectsOnMember`.
-- **Conservazione dello stato esausto nei Centri Pokémon**:
-  - La routine generale di guarigione della squadra (`Party_HealAllMembers`), invocata da Infermiera Joy, mamme, letti e medici, intercetta i membri della squadra a 0 HP e ne salta la guarigione.
-  - I Pokémon esausti rimangono a 0 HP, con status esausto e PP inalterati, costringendo il giocatore a depositarli in un box PC cimitero o liberarli come da regolamento Nuzlocke.
-  - In caso di sconfitta totale (black out), il giocatore riappare al Centro Pokémon con i Pokémon esausti intatti e può recarsi direttamente al terminale PC per depositare la squadra caduta.
+Enforces permanent faint / death mechanics across all recovery pathways:
+- **Revival Items Disabled**:
+  - *Revive*, *Max Revive*, *Revival Herb*, and *Sacred Ash* have their revival parameters cleared in the item database (`pl_item_data.narc`).
+  - Attempting to use any of these items (in or out of battle) is rejected with the in-game message *"It won't have any effect."*.
+  - Using *Rare Candies* on Pokémon with 0 HP is intercepted and blocked in `Party_CheckItemEffectsOnMember`.
+- **Faint Preservation at Healing Facilities**:
+  - The universal party healing function (`Party_HealAllMembers`), invoked by Nurse Joy, mothers, beds, and overworld doctors, detects party members with 0 HP and skips healing them.
+  - Fainted Pokémon remain at 0 HP, with fainted status and unmodified PP, requiring the player to deposit them into a graveyard PC box or release them.
+  - In the event of a total party blackout, the player respawns at the Pokémon Center with their fallen team still fainted, ready to deposit them in the PC.
 
-### 4. Starter da Trainer ID (`feature/starter-by-tid`)
-Determina la scelta obbligatoria dello starter in base all'ultima cifra del Trainer ID (TID) visualizzato sulla Scheda Allenatore:
-- **Cifra finale 1, 2, 3:** Pokémon Erba (**Turtwig**)
-- **Cifra finale 4, 5, 6:** Pokémon Fuoco (**Chimchar**)
-- **Cifra finale 7, 8, 9:** Pokémon Acqua (**Piplup**)
-- **Cifra finale 0:** **Scelta libera** tra tutti e tre gli starter
+### 4. Starter by Trainer ID (`feature/starter-by-tid`)
+Determines the player's mandatory starter Pokémon based on the final digit of their Trainer ID (TID) on the Trainer Card:
+- **Last digit 1, 2, 3:** Grass starter (**Turtwig**)
+- **Last digit 4, 5, 6:** Fire starter (**Chimchar**)
+- **Last digit 7, 8, 9:** Water starter (**Piplup**)
+- **Last digit 0:** **Player's choice** (free selection among all three)
 
-#### Come funziona tecnicamente:
-1. Nella scena della valigetta del Lago Verità (Overlay 78, `choose_starter`), il cursore viene inizializzato direttamente sulla Poké Ball assegnata dal TID del giocatore.
-2. La navigazione sinistra/destra (`ChangePokeballChoice`) viene bloccata sulla Poké Ball assegnata se la cifra non è 0, impedendo di selezionare un altro starter.
-3. Al momento della conferma (`GetSelectedSpecies` / `ChooseStarter_Exit`), il gioco restituisce tassativamente la specie associata al TID (Turtwig: 387, Chimchar: 390, Piplup: 393), garantendo che la sceneggiatura, la consegna al giocatore e la squadra del rivale Barry rimangano perfettamente sincronizzate.
+#### Technical Details:
+1. In the Lake Verity briefcase scene (Overlay 78, `choose_starter`), the cursor is initialized directly on the assigned Poké Ball.
+2. D-Pad Left/Right navigation (`ChangePokeballChoice`) is locked to the assigned Poké Ball if the digit is 1–9, preventing the player from scrolling to another starter.
+3. At the confirmation dialog and exit routine (`GetSelectedSpecies` / `ChooseStarter_Exit`), the species is strictly returned according to the TID (Turtwig: 387, Chimchar: 390, Piplup: 393), keeping the dialogue, delivery, Starly battle, and rival Barry's team perfectly synchronized.
 
 ---
 
-## Utilizzo del Patcher
+## Using the Patcher
 
-Per applicare le modifiche alla tua ROM pulita di Pokémon Platino:
+To apply the patches to your clean Pokémon Platinum ROM:
 
-1. Inserisci la ROM originale nella cartella `Game/` (es. `Game/3794 - Pokemon - Versione Platino (IT)(EXiMiUS).nds`).
-2. Esegui il comando:
+1. Place your clean ROM into the `Game/` directory (e.g., `Game/3794 - Pokemon - Versione Platino (IT)(EXiMiUS).nds`).
+2. Run the patcher:
    ```bash
    python apply_patch.py
    ```
-3. Se eseguito in un terminale interattivo, apparirà il **Selettore Interattivo delle Funzionalità**:
+3. When executed in an interactive terminal, the **Interactive Feature Selector** menu appears:
    ```text
    =================================================================
              POKEMON PLATINO - NUZLOCKE FEATURE SELECTOR
@@ -99,33 +99,36 @@ Per applicare le modifiche alla tua ROM pulita di Pokémon Platino:
      - Premi INVIO per confermare e procedere con il patch
      - 'q' per uscire senza applicare
    ```
-   Puoi digitare ad esempio `1` per disattivare il Level Cap (diventa `[ ]`), o premere semplicemente Invio per confermare la selezione predefinita con tutte le funzionalità attive!
+   You can type e.g. `1` to toggle off the Level Cap (showing `[ ]`), or simply press **Enter** to proceed with all features enabled!
 
-4. La ROM patchata verrà generata automaticamente nella cartella `out/Pokemon_Platino_Nuzlocke.nds`.
+4. The patched ROM will be saved automatically to `out/Pokemon_Platino_Nuzlocke.nds`.
 
-### Opzioni avanzate della CLI:
+### Advanced CLI Options:
 ```bash
-# Mostra informazioni e verifica hash della ROM pulita
+# View ROM info and verify MD5/SHA1 hashes
 python apply_patch.py --info
 
-# Modalità test senza scrivere il file di output
+# Perform a dry-run without writing output files
 python apply_patch.py --dry-run
 
-# Forzare il menu interattivo
+# Force interactive selection menu
 python apply_patch.py -i
 
-# Modalità non-interattiva / scripting (applica tutte le feature)
+# Non-interactive / headless mode (applies all features)
 python apply_patch.py --non-interactive
 
-# Selezionare specifiche feature direttamente da riga di comando
+# Specify custom features directly from the command line
 python apply_patch.py --features level-cap permadeath starter-by-tid
+
+# Custom input/output paths
+python apply_patch.py --rom "path/to/rom.nds" --output "path/to/output.nds"
 ```
 
 ---
 
-## Esecuzione dei Test
+## Running Unit Tests
 
-Per verificare l'integrità delle patch e dei file generati:
+To verify patch integrity and ROM modifications:
 ```bash
 python -m unittest discover tests
 ```
