@@ -47,8 +47,19 @@ Impone la regola classica del Nuzlocke: è possibile catturare un solo Pokémon 
   - Se un Pokémon di quell'area è già presente (in squadra o nei box, inclusi starter, Pokémon dono o Pokémon svenuti nel box cimitero), la cattura viene **bloccata**: la Ball effettua 0 oscillazioni e il Pokémon selvatico si libera immediatamente con il messaggio nativo *"Oh no! Il Pokémon si è liberato!"*.
   - La cattura guidata del tutorial (Lucas/Dawn sul Percorso 202) e il Parco Amici sono preservati e non vengono bloccati.
 
+### 3. Permadeath (`feature/permadeath`)
+Implementa la regola fondamentale della morte permanente: i Pokémon esausti non possono più essere resuscitati.
+- **Blocco totale degli strumenti di rianimazione**:
+  - *Revitalizzante*, *Revitalizzante Max*, *Erba Revitalizzante* e *Ceneremagica* hanno i loro attributi di rianimazione azzerati a livello di dati (`pl_item_data.narc`).
+  - L'uso di questi strumenti (sia durante la lotta che dalla borsa fuori dalla lotta) viene rifiutato con il messaggio *"Non ha alcun effetto!"*.
+  - Anche l'uso di *Caramelle Rare* su Pokémon a 0 HP viene intercettato e bloccato in `Party_CheckItemEffectsOnMember`.
+- **Conservazione dello stato esausto nei Centri Pokémon**:
+  - La routine generale di guarigione della squadra (`Party_HealAllMembers`), invocata da Infermiera Joy, mamme, letti e medici, intercetta i membri della squadra a 0 HP e ne salta la guarigione.
+  - I Pokémon esausti rimangono a 0 HP, con status esausto e PP inalterati, costringendo il giocatore a depositarli in un box PC cimitero o liberarli come da regolamento Nuzlocke.
+  - In caso di sconfitta totale (black out), il giocatore riappare al Centro Pokémon con i Pokémon esausti intatti e può recarsi direttamente al terminale PC per depositare la squadra caduta.
 
 ---
+
 
 ## Utilizzo del Patcher
 
