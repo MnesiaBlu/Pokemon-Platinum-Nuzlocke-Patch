@@ -40,6 +40,14 @@ Impedisce ai Pokémon della squadra di superare il livello del Pokémon più for
 1. All'inizio dell'assegnazione dell'esperienza in battaglia (`BattleScript_GetExpTask`), viene controllato il livello del Pokémon rispetto al cap calcolato dinamicamente in base alle medaglie salvate nel `TrainerInfo`. Se il Pokémon è già al cap o superiore, l'EXP guadagnata è pari a 0 e il ciclo viene saltato immediatamente.
 2. Se un Pokémon è sotto il cap ma l'esperienza vinta lo farebbe salire oltre il livello consentito, l'esperienza viene troncata esattamente alla soglia necessaria per raggiungere il livello cap con 0 punti in eccesso.
 
+### 2. Primo Incontro per Percorso (`feature/first-encounter`)
+Impone la regola classica del Nuzlocke: è possibile catturare un solo Pokémon per percorso/area.
+- Quando il giocatore tenta di lanciare una Poké Ball su un Pokémon selvatico:
+  - Il gioco scansiona la **Squadra** (Party) e tutti i **Box del PC** alla ricerca di un Pokémon il cui luogo di cattura (`MON_DATA_MET_LOCATION`) coincida con l'area attuale (`mapHeader` / `mapLabelTextID`).
+  - Se un Pokémon di quell'area è già presente (in squadra o nei box, inclusi starter, Pokémon dono o Pokémon svenuti nel box cimitero), la cattura viene **bloccata**: la Ball effettua 0 oscillazioni e il Pokémon selvatico si libera immediatamente con il messaggio nativo *"Oh no! Il Pokémon si è liberato!"*.
+  - La cattura guidata del tutorial (Lucas/Dawn sul Percorso 202) e il Parco Amici sono preservati e non vengono bloccati.
+
+
 ---
 
 ## Utilizzo del Patcher

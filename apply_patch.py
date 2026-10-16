@@ -9,12 +9,14 @@ import sys
 from pathlib import Path
 
 from patcher.rom import RomHandler
-from patcher.patches import LevelCapPatch
+from patcher.patches import LevelCapPatch, FirstEncounterPatch
 
 
 AVAILABLE_PATCHES = {
     "level-cap": LevelCapPatch,
+    "first-encounter": FirstEncounterPatch,
 }
+
 
 
 def find_default_rom() -> Path | None:
