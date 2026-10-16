@@ -2,6 +2,7 @@
 """Pokemon Platinum Nuzlocke Patcher CLI.
 
 Applies configurable Nuzlocke feature patches to a clean Pokemon Platinum ROM.
+Features can be selected interactively or specified via command-line arguments.
 """
 
 import argparse
@@ -24,6 +25,24 @@ AVAILABLE_PATCHES = {
     "starter-by-tid": StarterByTidPatch,
 }
 
+FEATURE_DETAILS = {
+    "level-cap": {
+        "title": "Level Cap Dinamico",
+        "desc": "I Pokemon non possono superare il livello dell'asso del prossimo Capopalestra/Campione",
+    },
+    "first-encounter": {
+        "title": "First Encounter Only",
+        "desc": "Blocca la cattura se possiedi gia un Pokemon catturato nella stessa zona/percorso",
+    },
+    "permadeath": {
+        "title": "Permadeath Completo",
+        "desc": "I Pokemon esausti non possono essere resuscitati da oggetti ne dai Centri Pokemon",
+    },
+    "starter-by-tid": {
+        "title": "Starter da Trainer ID",
+        "desc": "Starter scelto dall'ultima cifra del Trainer ID (1-3 Erba, 4-6 Fuoco, 7-9 Acqua, 0 Scelta Libera)",
+    },
+}
 
 
 def find_default_rom() -> Path | None:
@@ -34,6 +53,63 @@ def find_default_rom() -> Path | None:
         if nds_files:
             return nds_files[0]
     return None
+
+
+def interactive_feature_selector(available_patches: dict[str, type]) -> list[str]:
+    """Interactive console menu to toggle features on or off before patching."""
+    keys = list(available_patches.keys())
+    enabled = {k: True for k in keys}
+
+    while True:
+        print("\n" + "=" * 65)
+        print("          POKEMON PLATINO - NUZLOCKE FEATURE SELECTOR")
+        print("=" * 65)
+        print("Seleziona le funzionalita da includere nella patch:\n")
+
+        for idx, key in enumerate(keys, 1):
+            status = "[X]" if enabled[key] else "[ ]"
+            info = FEATURE_DETAILS.get(key, {})
+            title = info.get("title", key)
+            desc = info.get("desc", available_patches[key].description)
+            print(f"  {status} {idx}. {title}")
+            print(f"       {desc}")
+
+        print("\nComandi:")
+        print(f"  - Digita il numero (1-{len(keys)}) per attivare/disattivare")
+        print("  - 'a' per attivare tutte | 'n' per disattivare tutte")
+        print("  - Premi INVIO per confermare e procedere con il patch")
+        print("  - 'q' per uscire senza applicare")
+
+        try:
+            choice = input("\nScelta > ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            print("\nOperazione annullata.")
+            sys.exit(0)
+
+        if choice == "":
+            selected = [k for k in keys if enabled[k]]
+            if not selected:
+                print("\n[!] Devi selezionare almeno una funzionalita da applicare!")
+                continue
+            return selected
+        elif choice == "q":
+            print("\nOperazione annullata dall'utente.")
+            sys.exit(0)
+        elif choice == "a":
+            for k in keys:
+                enabled[k] = True
+        elif choice == "n":
+            for k in keys:
+                enabled[k] = False
+        elif choice.isdigit():
+            idx = int(choice)
+            if 1 <= idx <= len(keys):
+                key = keys[idx - 1]
+                enabled[key] = not enabled[key]
+            else:
+                print(f"\n[!] Opzione non valida: {choice}")
+        else:
+            print(f"\n[!] Comando non riconosciuto: '{choice}'")
 
 
 def main():
@@ -57,8 +133,19 @@ def main():
         "--features",
         nargs="+",
         choices=list(AVAILABLE_PATCHES.keys()) + ["all"],
-        default=["all"],
-        help="Select features to patch (default: all available features)",
+        default=None,
+        help="Select features to patch (e.g. --features level-cap permadeath). If omitted and running in terminal, opens interactive menu.",
+    )
+    parser.add_argument(
+        "--interactive",
+        "-i",
+        action="store_true",
+        help="Force interactive feature selection menu.",
+    )
+    parser.add_argument(
+        "--non-interactive",
+        action="store_true",
+        help="Disable interactive menu and apply all features (or those given in --features).",
     )
     parser.add_argument(
         "--info",
@@ -100,13 +187,23 @@ def main():
     if args.info:
         sys.exit(0)
 
-    # Determine patches to apply
-    selected_keys = (
-        list(AVAILABLE_PATCHES.keys()) if "all" in args.features else args.features
+    # Determine features to apply
+    should_prompt = args.interactive or (
+        args.features is None and not args.non_interactive and sys.stdin.isatty()
     )
 
+    if should_prompt:
+        selected_keys = interactive_feature_selector(AVAILABLE_PATCHES)
+    elif args.features:
+        selected_keys = (
+            list(AVAILABLE_PATCHES.keys()) if "all" in args.features else args.features
+        )
+    else:
+        # Default headless / non-interactive: all features
+        selected_keys = list(AVAILABLE_PATCHES.keys())
+
     patches_to_apply = [AVAILABLE_PATCHES[k]() for k in selected_keys]
-    print(f"Selected features to patch: {', '.join(p.name for p in patches_to_apply)}")
+    print(f"\nSelected features to patch ({len(patches_to_apply)}): {', '.join(p.name for p in patches_to_apply)}")
 
     for patch in patches_to_apply:
         print(f"Applying patch: {patch.name} ...")
