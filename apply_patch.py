@@ -9,13 +9,19 @@ import sys
 from pathlib import Path
 
 from patcher.rom import RomHandler
-from patcher.patches import LevelCapPatch, FirstEncounterPatch, PermadeathPatch
+from patcher.patches import (
+    LevelCapPatch,
+    FirstEncounterPatch,
+    PermadeathPatch,
+    StarterByTidPatch,
+)
 
 
 AVAILABLE_PATCHES = {
     "level-cap": LevelCapPatch,
     "first-encounter": FirstEncounterPatch,
     "permadeath": PermadeathPatch,
+    "starter-by-tid": StarterByTidPatch,
 }
 
 
