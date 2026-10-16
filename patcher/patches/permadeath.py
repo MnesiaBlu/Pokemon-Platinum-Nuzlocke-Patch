@@ -14,6 +14,7 @@ import ndspy.narc
 from .base import BasePatch
 from ..rom import RomHandler
 from ..arm_asm import Assembler
+from ..scanner import UniversalResolver
 
 
 class PermadeathPatch(BasePatch):
@@ -171,9 +172,7 @@ Party_CheckItemEffects_Nuzlocke:
     def apply(self, rom_handler: RomHandler) -> bool:
         cfg = self.CONFIG.get(rom_handler.game_code)
         if not cfg:
-            raise ValueError(
-                f"PermadeathPatch does not support game code: {rom_handler.game_code}"
-            )
+            cfg = UniversalResolver.resolve_permadeath(rom_handler)
 
         arm9 = rom_handler.rom.arm9
         arm9_ram = rom_handler.rom.arm9RamAddress

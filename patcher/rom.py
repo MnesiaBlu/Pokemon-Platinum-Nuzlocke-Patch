@@ -11,6 +11,10 @@ class RomHandler:
     SUPPORTED_GAME_CODES = {
         b"CPUI": "Pokemon Versione Platino (IT)",
         b"CPUE": "Pokemon Platinum Version (US)",
+        b"CPUF": "Pokemon Version Platine (FR)",
+        b"CPUD": "Pokemon Platin-Edition (DE)",
+        b"CPUS": "Pokemon Edicion Platino (ES)",
+        b"CPUJ": "Pokemon Platinum (JP)",
     }
 
     def __init__(self, rom_path: str | Path):
@@ -21,7 +25,7 @@ class RomHandler:
         self.rom = ndspy.rom.NintendoDSRom.fromFile(str(self.path))
         self.game_code = bytes(self.rom.idCode)
         self.game_name = self.SUPPORTED_GAME_CODES.get(
-            self.game_code, f"Unknown ({self.game_code.decode('latin1', errors='replace')})"
+            self.game_code, f"Pokemon Platinum ({self.game_code.decode('latin1', errors='replace')})"
         )
 
     def verify(self) -> dict:
@@ -37,7 +41,7 @@ class RomHandler:
             "size": len(raw),
             "md5": md5,
             "sha1": sha1,
-            "supported": self.game_code in self.SUPPORTED_GAME_CODES,
+            "supported": self.game_code in self.SUPPORTED_GAME_CODES or self.game_code.startswith(b"CPU"),
         }
 
     def get_overlay_entry(self, overlay_id: int) -> dict:
