@@ -27,20 +27,20 @@ AVAILABLE_PATCHES = {
 
 FEATURE_DETAILS = {
     "level-cap": {
-        "title": "Level Cap Dinamico",
-        "desc": "I Pokemon non possono superare il livello dell'asso del prossimo Capopalestra/Campione",
+        "title": "Dynamic Level Cap",
+        "desc": "Pokemon cannot exceed the level of the upcoming Gym Leader/Champion's ace",
     },
     "first-encounter": {
         "title": "First Encounter Only",
-        "desc": "Blocca la cattura se possiedi gia un Pokemon catturato nella stessa zona/percorso",
+        "desc": "Blocks catching wild Pokemon on routes/areas where a Pokemon was already caught",
     },
     "permadeath": {
-        "title": "Permadeath Completo",
-        "desc": "I Pokemon esausti non possono essere resuscitati da oggetti ne dai Centri Pokemon",
+        "title": "Complete Permadeath",
+        "desc": "Fainted Pokemon cannot be revived by items or healed at Pokemon Centers",
     },
     "starter-by-tid": {
-        "title": "Starter da Trainer ID",
-        "desc": "Starter scelto dall'ultima cifra del Trainer ID (1-3 Erba, 4-6 Fuoco, 7-9 Acqua, 0 Scelta Libera)",
+        "title": "Starter by Trainer ID",
+        "desc": "Starter determined by Trainer ID last digit (1-3 Grass, 4-6 Fire, 7-9 Water, 0 Player Choice)",
     },
 }
 
@@ -62,9 +62,9 @@ def interactive_feature_selector(available_patches: dict[str, type]) -> list[str
 
     while True:
         print("\n" + "=" * 65)
-        print("          POKEMON PLATINO - NUZLOCKE FEATURE SELECTOR")
+        print("          POKEMON PLATINUM - NUZLOCKE FEATURE SELECTOR")
         print("=" * 65)
-        print("Seleziona le funzionalita da includere nella patch:\n")
+        print("Select features to include in the patch:\n")
 
         for idx, key in enumerate(keys, 1):
             status = "[X]" if enabled[key] else "[ ]"
@@ -74,26 +74,26 @@ def interactive_feature_selector(available_patches: dict[str, type]) -> list[str
             print(f"  {status} {idx}. {title}")
             print(f"       {desc}")
 
-        print("\nComandi:")
-        print(f"  - Digita il numero (1-{len(keys)}) per attivare/disattivare")
-        print("  - 'a' per attivare tutte | 'n' per disattivare tutte")
-        print("  - Premi INVIO per confermare e procedere con il patch")
-        print("  - 'q' per uscire senza applicare")
+        print("\nCommands:")
+        print(f"  - Type number (1-{len(keys)}) to toggle feature")
+        print("  - 'a' to enable all | 'n' to disable all")
+        print("  - Press ENTER to confirm and proceed with patching")
+        print("  - 'q' to quit without patching")
 
         try:
-            choice = input("\nScelta > ").strip().lower()
+            choice = input("\nChoice > ").strip().lower()
         except (EOFError, KeyboardInterrupt):
-            print("\nOperazione annullata.")
+            print("\nOperation cancelled.")
             sys.exit(0)
 
         if choice == "":
             selected = [k for k in keys if enabled[k]]
             if not selected:
-                print("\n[!] Devi selezionare almeno una funzionalita da applicare!")
+                print("\n[!] You must select at least one feature to apply!")
                 continue
             return selected
         elif choice == "q":
-            print("\nOperazione annullata dall'utente.")
+            print("\nOperation cancelled by user.")
             sys.exit(0)
         elif choice == "a":
             for k in keys:
@@ -107,9 +107,9 @@ def interactive_feature_selector(available_patches: dict[str, type]) -> list[str
                 key = keys[idx - 1]
                 enabled[key] = not enabled[key]
             else:
-                print(f"\n[!] Opzione non valida: {choice}")
+                print(f"\n[!] Invalid option: {choice}")
         else:
-            print(f"\n[!] Comando non riconosciuto: '{choice}'")
+            print(f"\n[!] Unrecognized command: '{choice}'")
 
 
 def main():
@@ -126,8 +126,8 @@ def main():
         "--output",
         "-o",
         type=str,
-        default="out/Pokemon_Platino_Nuzlocke.nds",
-        help="Path where the patched ROM will be saved (default: out/Pokemon_Platino_Nuzlocke.nds)",
+        default="out/Pokemon_Platinum_Nuzlocke.nds",
+        help="Path where the patched ROM will be saved (default: out/Pokemon_Platinum_Nuzlocke.nds)",
     )
     parser.add_argument(
         "--features",

@@ -10,6 +10,7 @@ the thrown ball shakes 0 times and the Pokemon immediately breaks free.
 from .base import BasePatch
 from ..rom import RomHandler
 from ..arm_asm import Assembler
+from ..scanner import UniversalResolver
 
 
 class FirstEncounterPatch(BasePatch):
@@ -141,9 +142,7 @@ Custom_CalcCatchShakes:
     def apply(self, rom_handler: RomHandler) -> bool:
         cfg = self.CONFIG.get(rom_handler.game_code)
         if not cfg:
-            raise ValueError(
-                f"FirstEncounterPatch does not support game code: {rom_handler.game_code}"
-            )
+            cfg = UniversalResolver.resolve_first_encounter(rom_handler)
 
         ov16 = rom_handler.load_arm9_overlay(cfg["overlay_id"])
         ov16_ram = ov16.ramAddress

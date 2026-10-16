@@ -20,6 +20,7 @@ Implements the rule directly into Overlay 78 (choose_starter):
 from .base import BasePatch
 from ..rom import RomHandler
 from ..arm_asm import Assembler
+from ..scanner import UniversalResolver
 
 
 class StarterByTidPatch(BasePatch):
@@ -156,9 +157,7 @@ Hook_GetSelectedSpecies:
     def apply(self, rom_handler: RomHandler) -> bool:
         cfg = self.CONFIG.get(rom_handler.game_code)
         if not cfg:
-            raise ValueError(
-                f"StarterByTidPatch does not support game code: {rom_handler.game_code}"
-            )
+            cfg = UniversalResolver.resolve_starter_by_tid(rom_handler)
 
         ov78 = rom_handler.load_arm9_overlay(cfg["overlay_id"])
         ov78_ram = ov78.ramAddress

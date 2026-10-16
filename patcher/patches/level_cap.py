@@ -21,6 +21,7 @@ clamped exactly to the cap level with 0 surplus EXP.
 from .base import BasePatch
 from ..rom import RomHandler
 from ..arm_asm import Assembler
+from ..scanner import UniversalResolver
 
 
 class LevelCapPatch(BasePatch):
@@ -194,7 +195,7 @@ ClampExpHook:
     def apply(self, rom_handler: RomHandler) -> bool:
         cfg = self.CONFIG.get(rom_handler.game_code)
         if not cfg:
-            raise ValueError(f"LevelCapPatch does not support game code: {rom_handler.game_code}")
+            cfg = UniversalResolver.resolve_level_cap(rom_handler)
 
         ov16 = rom_handler.load_arm9_overlay(cfg["overlay_id"])
         ov16_ram = ov16.ramAddress

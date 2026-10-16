@@ -1,6 +1,6 @@
 # Pokémon Platinum Nuzlocke Patcher
 
-A modular Python toolkit to generate a patched ROM of **Pokémon Platinum Version (Italian - CPUI)** with standard Nuzlocke challenge rules enforced directly at the game engine level.
+A modular Python toolkit to generate a patched ROM of **Pokémon Platinum Version** (universal support: Italian `CPUI`, US/English `CPUE`, French `CPUF`, German `CPUD`, Spanish `CPUS`) with standard Nuzlocke challenge rules enforced directly at the game engine level.
 
 > [!NOTE]
 > This repository strictly contains the source code for the **patcher** tool and ARM/Thumb assembly hooks. No copyrighted ROM files or Nintendo assets are distributed or tracked within this Git repository.
@@ -70,13 +70,19 @@ Determines the player's mandatory starter Pokémon based on the final digit of t
 2. D-Pad Left/Right navigation (`ChangePokeballChoice`) is locked to the assigned Poké Ball if the digit is 1–9, preventing the player from scrolling to another starter.
 3. At the confirmation dialog and exit routine (`GetSelectedSpecies` / `ChooseStarter_Exit`), the species is strictly returned according to the TID (Turtwig: 387, Chimchar: 390, Piplup: 393), keeping the dialogue, delivery, Starly battle, and rival Barry's team perfectly synchronized.
 
+### 5. Universal Pattern Scanner (`feature/universal-pattern-scanner`)
+Provides dynamic hook and symbol resolution across different game revisions and language releases of Pokémon Platinum (`CPUI`, `CPUE`, `CPUF`, `CPUD`, `CPUS`, etc.):
+- **Dynamic Pattern Matching**: Scans binary code in ARM9 and code overlays (`overlay_0016`, `overlay_0078`) using fuzzy wildcard signatures rather than rigid hardcoded offsets.
+- **Instruction Branch Disassembly**: Automatically decodes ARM/Thumb branch instructions (`BL` and `B`) to locate target subroutines (`Party_GetCurrentCount`, `ChangePokeballChoice`, `Battle_CalcCatchShakes`).
+- **Zero Configuration Needed**: Run the patcher on any standard Platinum ROM — the scanner automatically identifies memory addresses, literal pool pointers, and overlay structures.
+
 ---
 
 ## Using the Patcher
 
 To apply the patches to your clean Pokémon Platinum ROM:
 
-1. Place your clean ROM into the `Game/` directory (e.g., `Game/3794 - Pokemon - Versione Platino (IT)(EXiMiUS).nds`).
+1. Place your clean ROM into the `Game/` directory (e.g., `Game/3794 - Pokemon - Versione Platino (IT)(EXiMiUS).nds` or an English/US `CPUE` ROM).
 2. Run the patcher:
    ```bash
    python apply_patch.py
@@ -84,24 +90,28 @@ To apply the patches to your clean Pokémon Platinum ROM:
 3. When executed in an interactive terminal, the **Interactive Feature Selector** menu appears:
    ```text
    =================================================================
-             POKEMON PLATINO - NUZLOCKE FEATURE SELECTOR
+             POKEMON PLATINUM - NUZLOCKE FEATURE SELECTOR
    =================================================================
-   Seleziona le funzionalita da includere nella patch:
+   Select features to include in the patch:
 
-     [X] 1. Level Cap Dinamico
+     [X] 1. Dynamic Level Cap
+          Pokemon cannot exceed the level of the upcoming Gym Leader/Champion's ace
      [X] 2. First Encounter Only
-     [X] 3. Permadeath Completo
-     [X] 4. Starter da Trainer ID
+          Blocks catching wild Pokemon on routes/areas where a Pokemon was already caught
+     [X] 3. Complete Permadeath
+          Fainted Pokemon cannot be revived by items or healed at Pokemon Centers
+     [X] 4. Starter by Trainer ID
+          Starter determined by Trainer ID last digit (1-3 Grass, 4-6 Fire, 7-9 Water, 0 Player Choice)
 
-   Comandi:
-     - Digita il numero (1-4) per attivare/disattivare
-     - 'a' per attivare tutte | 'n' per disattivare tutte
-     - Premi INVIO per confermare e procedere con il patch
-     - 'q' per uscire senza applicare
+   Commands:
+     - Type number (1-4) to toggle feature
+     - 'a' to enable all | 'n' to disable all
+     - Press ENTER to confirm and proceed with patching
+     - 'q' to quit without patching
    ```
    You can type e.g. `1` to toggle off the Level Cap (showing `[ ]`), or simply press **Enter** to proceed with all features enabled!
 
-4. The patched ROM will be saved automatically to `out/Pokemon_Platino_Nuzlocke.nds`.
+4. The patched ROM will be saved automatically to `out/Pokemon_Platinum_Nuzlocke.nds`.
 
 ### Advanced CLI Options:
 ```bash
