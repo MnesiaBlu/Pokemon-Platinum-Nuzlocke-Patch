@@ -1,1 +1,20 @@
-/game
+# ROMs & Game Binaries
+*.nds
+*.bin
+Game/
+game/
+out/
+build/
+dist/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+venv/
+
+# Temporary / OS
+.DS_Store
+Thumbs.db
