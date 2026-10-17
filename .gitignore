@@ -1,6 +1,9 @@
 # ROMs & Game Binaries
 *.nds
 *.bin
+*.sav
+*.dsv
+*.bak
 Game/
 game/
 out/
