@@ -144,11 +144,6 @@ class UniversalResolver:
         h2_addr = ov78_ram + h2_off
         fn_change_pokeball_choice = PatternScanner.decode_thumb_bl(ov78_data[h2_off:h2_off+4], h2_addr)
 
-        # Hook 3: GetSelectedSpecies entry point
-        h3_off = PatternScanner.find_pattern(ov78_data, "08 b5 00 28 ?? d0 01 28 ?? d0 02 28")
-        if h3_off is None:
-            raise RuntimeError("Could not find GetSelectedSpecies signature in Overlay 78")
-
         # SaveData_GetTrainerInfo and sSaveDataPtr in ARM9
         arm9 = bytes(rom_handler.rom.arm9)
         arm9_ram = rom_handler.rom.arm9RamAddress
@@ -172,8 +167,6 @@ class UniversalResolver:
             "hook1_expected": bytes(ov78_data[h1_off : h1_off + 6]),
             "hook2_choice_addr": h2_addr,
             "hook2_expected": bytes(ov78_data[h2_off : h2_off + 4]),
-            "hook3_species_addr": ov78_ram + h3_off,
-            "hook3_expected": bytes(ov78_data[h3_off : h3_off + 4]),
             "save_data_ptr": save_data_ptr,
             "fn_save_get_trainer_info": fn_save_get_trainer_info,
             "fn_change_pokeball_choice": fn_change_pokeball_choice,

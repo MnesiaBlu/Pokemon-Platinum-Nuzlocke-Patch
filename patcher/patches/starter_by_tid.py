@@ -37,8 +37,6 @@ class StarterByTidPatch(BasePatch):
             "hook1_expected": bytes.fromhex("012004b038bd"),
             "hook2_choice_addr": 0x021D1B08,
             "hook2_expected": bytes.fromhex("00f056f9"),
-            "hook3_species_addr": 0x021D2A7C,
-            "hook3_expected": bytes.fromhex("08b50028"),
             "save_data_ptr": 0x021C08F4,
             "fn_save_get_trainer_info": 0x02025EA8,
             "fn_change_pokeball_choice": 0x021D1DB8,
@@ -146,37 +144,6 @@ Hook_ChangePokeballChoice:
     pop {{r4, pc}}
 """
         b_choice = self.asm.assemble_thumb(code_choice, addr_choice)
-        pad3 = (4 - (len(b_choice) % 4)) % 4
-        addr_species = addr_choice + len(b_choice) + pad3
-
-        # 4. Hook_GetSelectedSpecies:
-        # Overrides species returned to field (387 Turtwig, 390 Chimchar, 393 Piplup),
-        # or respects player's selection if free choice.
-        code_species = f"""
-.thumb
-.align 2
-Hook_GetSelectedSpecies:
-    push {{r4, lr}}
-    adds r4, r0, #0
-    bl #{hex(base_addr)}
-    cmp r0, #0xFF
-    bne .return_mandated
-    adds r0, r4, #0
-.return_mandated:
-    cmp r0, #0
-    beq .species_turtwig
-    cmp r0, #1
-    beq .species_chimchar
-    ldr r0, =393
-    pop {{r4, pc}}
-.species_chimchar:
-    ldr r0, =390
-    pop {{r4, pc}}
-.species_turtwig:
-    ldr r0, =387
-    pop {{r4, pc}}
-"""
-        b_species = self.asm.assemble_thumb(code_species, addr_species)
 
         total_bytes = (
             b_tid
@@ -184,10 +151,8 @@ Hook_GetSelectedSpecies:
             + b_init
             + (b"\x00" * pad2)
             + b_choice
-            + (b"\x00" * pad3)
-            + b_species
         )
-        return total_bytes, addr_init, addr_choice, addr_species
+        return total_bytes, addr_init, addr_choice
 
     def apply(self, rom_handler: RomHandler) -> bool:
         cfg = self.CONFIG.get(rom_handler.game_code)
@@ -218,17 +183,8 @@ Hook_GetSelectedSpecies:
                 f"expected {cfg['hook2_expected'].hex()}, got {actual_h2.hex()}"
             )
 
-        h3_offset = cfg["hook3_species_addr"] - ov78_ram
-        h3_len = len(cfg["hook3_expected"])
-        actual_h3 = bytes(ov78.data[h3_offset : h3_offset + h3_len])
-        if actual_h3 != cfg["hook3_expected"]:
-            raise ValueError(
-                f"GetSelectedSpecies hook mismatch at 0x{cfg['hook3_species_addr']:08X}: "
-                f"expected {cfg['hook3_expected'].hex()}, got {actual_h3.hex()}"
-            )
-
         # Generate custom code routines
-        custom_bytes, addr_init, addr_choice, addr_species = self.generate_custom_code(
+        custom_bytes, addr_init, addr_choice = self.generate_custom_code(
             cfg, base_addr
         )
 
@@ -241,16 +197,11 @@ Hook_GetSelectedSpecies:
         hook2_code = f"bl #{hex(addr_choice)}"
         hook2_bytes = self.asm.assemble_thumb(hook2_code, cfg["hook2_choice_addr"])
 
-        # Hook 3: bl Hook_GetSelectedSpecies (4 bytes)
-        hook3_code = f"bl #{hex(addr_species)}"
-        hook3_bytes = self.asm.assemble_thumb(hook3_code, cfg["hook3_species_addr"])
-
         # Apply modifications to overlay data
         new_overlay_data = bytearray(ov78.data)
 
         new_overlay_data[h1_offset : h1_offset + len(hook1_bytes)] = hook1_bytes
         new_overlay_data[h2_offset : h2_offset + len(hook2_bytes)] = hook2_bytes
-        new_overlay_data[h3_offset : h3_offset + len(hook3_bytes)] = hook3_bytes
 
         # Append custom routines
         new_overlay_data.extend(custom_bytes)

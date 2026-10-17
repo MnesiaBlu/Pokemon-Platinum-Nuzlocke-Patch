@@ -120,7 +120,6 @@ class TestUniversalResolver(unittest.TestCase):
         self.assertEqual(cfg["overlay_id"], 78)
         self.assertEqual(cfg["hook1_init_addr"], 0x021D103C)
         self.assertEqual(cfg["hook2_choice_addr"], 0x021D1B08)
-        self.assertEqual(cfg["hook3_species_addr"], 0x021D2A7C)
         self.assertEqual(cfg["fn_change_pokeball_choice"], 0x021D1DB8)
         self.assertEqual(cfg["fn_save_get_trainer_info"], 0x02025EA8)
         self.assertEqual(cfg["save_data_ptr"], 0x021C08F4)

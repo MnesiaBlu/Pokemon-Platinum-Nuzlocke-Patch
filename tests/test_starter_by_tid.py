@@ -34,7 +34,7 @@ class TestStarterByTidPatch(unittest.TestCase):
         # 1. Verify overlay table entry updated
         e_patched = handler.get_overlay_entry(cfg["overlay_id"])
         self.assertGreater(e_patched["ram_size"], orig_ram_size)
-        self.assertEqual(e_patched["ram_size"], orig_ram_size + 164)
+        self.assertEqual(e_patched["ram_size"], orig_ram_size + 116)
 
         # 2. Reload overlay and verify modifications
         ov78 = handler.load_arm9_overlay(cfg["overlay_id"])
@@ -53,15 +53,9 @@ class TestStarterByTidPatch(unittest.TestCase):
         self.assertNotEqual(h2_bytes, cfg["hook2_expected"])
         self.assertEqual(h2_bytes[1] & 0xF8, 0xF0)
 
-        # Verify Hook 3 at 0x021D2A7C
-        h3_off = cfg["hook3_species_addr"] - ov78_ram
-        h3_bytes = bytes(ov78.data[h3_off : h3_off + len(cfg["hook3_expected"])])
-        self.assertNotEqual(h3_bytes, cfg["hook3_expected"])
-        self.assertEqual(h3_bytes[1] & 0xF8, 0xF0)
-
         # 3. Verify appended custom code
         appended_code = bytes(ov78.data[orig_ram_size:])
-        self.assertEqual(len(appended_code), 164)
+        self.assertEqual(len(appended_code), 116)
         # Verify literal pool entry (SaveDataPtr 0x021C08F4)
         self.assertIn(bytes.fromhex("f4081c02"), appended_code)
 
