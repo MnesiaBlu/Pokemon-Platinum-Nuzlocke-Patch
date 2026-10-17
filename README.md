@@ -42,10 +42,17 @@ Prevents party Pokémon from exceeding the level of the upcoming Gym Leader's or
 2. If a Pokémon is below the cap but the EXP rewarded would cause it to level up past the cap, the awarded EXP is clamped to the exact threshold needed to reach the cap with 0 excess points.
 
 ### 2. First Encounter Only (`feature/first-encounter`)
-Enforces the quintessential Nuzlocke rule: players may only capture one Pokémon per route or area.
-- Whenever the player throws any Poké Ball at a wild Pokémon:
-  - The game scans the **Party** and all **PC Boxes** to verify if any existing Pokémon shares the same met location (`MON_DATA_MET_LOCATION`) as the current route/area (`mapHeader` / `mapLabelTextID`).
-  - If a Pokémon from that location is already present (in the party or PC boxes, including gift Pokémon, starters, or fainted graveyard mons), the catch is **blocked**: the Ball shakes 0 times and the wild Pokémon breaks out immediately with the native game message *"Oh no! The Pokémon broke free!"*.
+Enforces the authentic Nuzlocke rule: the very first wild Pokémon encountered on a route or area is the player's **only** chance to catch a Pokémon there.
+- **Persistent Route Consumption**:
+  - The instant a wild battle starts, the location of the battle (`mapLabelTextID`) is evaluated.
+  - If it is the first encounter on that route, it is granted catch authorization. However, that route is **immediately marked as consumed / burned** in the game's persistent save data (`VarsFlags`).
+  - If the wild Pokémon faints, escapes, or the player runs away, that route remains burned forever. Any subsequent wild encounters on that route cannot be caught.
+- **Poké Ball Clause**:
+  - Standard Nuzlocke rules dictate that encounter tracking begins only after the player receives their Pokédex and their initial Poké Balls from Rowan/Dawn (`FLAG_HAS_POKEDEX = 146`). Early forced or wild encounters before Sandgem Town (e.g. Route 201 before receiving Poké Balls) do not consume the route prematurely.
+- **Gift / Starter Pokémon Clause**:
+  - Before authorizing a catch, the game also verifies if a Pokémon from that location is already owned in the **Party** or **PC Storage Boxes** (e.g. Lake Verity starter, gift Pokémon). If one is already owned, wild catches in that location are blocked.
+- **Encounter Behavior on Burned Routes**:
+  - Throwing any Poké Ball on a consumed route is blocked: the ball shakes 0 times and breaks out immediately with the native game message *"Oh no! The Pokémon broke free!"*.
   - Catching tutorial sequences (e.g. Lucas/Dawn on Route 202) and Pal Park transfers are preserved and never blocked.
 
 ### 3. Permadeath (`feature/permadeath`)
@@ -98,7 +105,7 @@ To apply the patches to your clean Pokémon Platinum ROM:
      [X] 1. Dynamic Level Cap
           Pokemon cannot exceed the level of the upcoming Gym Leader/Champion's ace
      [X] 2. First Encounter Only
-          Blocks catching wild Pokemon on routes/areas where a Pokemon was already caught
+          Exactly one catch chance per route; fleeing or defeating it permanently burns the route
      [X] 3. Complete Permadeath
           Fainted Pokemon cannot be revived by items or healed at Pokemon Centers
      [X] 4. Starter by Trainer ID

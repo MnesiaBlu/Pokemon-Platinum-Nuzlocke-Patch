@@ -70,9 +70,12 @@ class TestUniversalResolver(unittest.TestCase):
         handler = RomHandler(self.rom_path)
         cfg = UniversalResolver.resolve_first_encounter(handler)
         self.assertEqual(cfg["overlay_id"], 16)
+        self.assertEqual(cfg["hook_init_addr"], 0x0223D984)
+        self.assertEqual(cfg["fn_battle_sys_new"], 0x0223C421)
+        self.assertEqual(cfg["save_data_ptr"], 0x021C08F4)
+        self.assertEqual(cfg["fn_save_data_save_table"], 0x0202462D)
         self.assertEqual(cfg["hook_addr"], 0x02249EAA)
         self.assertEqual(cfg["fn_battle_calc_shakes"], 0x0224A8A1)
-        self.assertEqual(cfg["fn_battle_get_map_header"], 0x0223ED4D)
 
     def test_resolve_permadeath(self):
         handler = RomHandler(self.rom_path)

@@ -30,10 +30,15 @@ class TestFirstEncounterPatch(unittest.TestCase):
         ov16_after = handler.load_arm9_overlay(cfg["overlay_id"])
         self.assertGreater(len(ov16_after.data), orig_len)
 
-        # Verify hook was patched
-        h_off = cfg["hook_addr"] - ov16_after.ramAddress
-        h_bytes = bytes(ov16_after.data[h_off : h_off + len(cfg["hook_expected"])])
-        self.assertNotEqual(h_bytes, cfg["hook_expected"])
+        # Verify hook 1 (battle init) was patched
+        h1_off = cfg["hook_init_addr"] - ov16_after.ramAddress
+        h1_bytes = bytes(ov16_after.data[h1_off : h1_off + len(cfg["hook_init_expected"])])
+        self.assertNotEqual(h1_bytes, cfg["hook_init_expected"])
+
+        # Verify hook 2 (catch formula) was patched
+        h2_off = cfg["hook_addr"] - ov16_after.ramAddress
+        h2_bytes = bytes(ov16_after.data[h2_off : h2_off + len(cfg["hook_expected"])])
+        self.assertNotEqual(h2_bytes, cfg["hook_expected"])
 
     def test_apply_both_level_cap_and_first_encounter(self):
         handler = RomHandler(self.rom_path)
