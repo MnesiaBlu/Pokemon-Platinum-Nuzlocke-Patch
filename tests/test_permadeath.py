@@ -52,9 +52,20 @@ class TestPermadeathPatch(unittest.TestCase):
         self.assertNotEqual(blackout_bytes, cfg["hook_blackout_expected"])
 
         # 3. Verify custom routines written to free space
-        free_off = cfg["arm9_free_space_addr"] - arm9_ram
-        free_chunk = handler.rom.arm9[free_off : free_off + 180]
-        self.assertNotEqual(free_chunk, b"\x00" * 180)
+        heal_free_off = cfg["party_heal_free_space_addr"] - arm9_ram
+        self.assertNotEqual(bytes(handler.rom.arm9[heal_free_off : heal_free_off + 36]), b"\x00" * 36)
+
+        item_free_off = cfg["item_check_free_space_addr"] - arm9_ram
+        self.assertNotEqual(bytes(handler.rom.arm9[item_free_off : item_free_off + 56]), b"\x00" * 56)
+
+        blackout_free_off = cfg["blackout_free_space_addr"] - arm9_ram
+        self.assertNotEqual(bytes(handler.rom.arm9[blackout_free_off : blackout_free_off + 32]), b"\x00" * 32)
+
+        p1_off = cfg["battle_end_part1_addr"] - arm9_ram
+        self.assertNotEqual(bytes(handler.rom.arm9[p1_off : p1_off + 88]), b"\x00" * 88)
+
+        p2_off = cfg["battle_end_part2_addr"] - arm9_ram
+        self.assertNotEqual(bytes(handler.rom.arm9[p2_off : p2_off + 108]), b"\x00" * 108)
 
         # 4. Verify Box 18 Naming ('CIMITERO') in ARM9
         box_off = cfg["box_name_hook_addr"] - arm9_ram
@@ -68,17 +79,20 @@ class TestPermadeathPatch(unittest.TestCase):
         cimitero_bytes = bytes.fromhex("2d013301370133013e012f013c013901ffff")
         self.assertIn(cimitero_bytes, box_fn_chunk)
 
-        # 5. Verify Unmovable Box 18 in Overlay 19
+        # 5. Verify Unmovable Box 18 in Overlay 19 (in-place in existing zero padding)
         ov19 = handler.load_arm9_overlay(cfg["ov19_id"])
         ov19_off = cfg["ov19_hook_addr"] - ov19.ramAddress
         ov19_hook_bytes = bytes(ov19.data[ov19_off : ov19_off + 4])
         self.assertNotEqual(ov19_hook_bytes, cfg["ov19_hook_expected"])
-        self.assertGreater(len(ov19.data), 1800)
+        self.assertEqual(len(ov19.data), 63584)
+        ov19_free_off = cfg["ov19_free_space_addr"] - ov19.ramAddress
+        self.assertNotEqual(bytes(ov19.data[ov19_free_off : ov19_free_off + 28]), b"\x00" * 28)
 
-        # 6. Verify Battle End Hooks (Overlay 5 + ARM9 battle end transitions)
-        ov5 = handler.load_arm9_overlay(cfg["ov5_id"])
-        self.assertGreater(len(ov5.data), 201664)
+        # 6. Verify Overlay 5 is NOT expanded or corrupted by Permadeath
+        ov5 = handler.load_arm9_overlay(5)
+        self.assertEqual(len(ov5.data), 201664)
 
+        # 7. Verify Battle End Hooks in ARM9
         for idx, hook_addr in enumerate(cfg["battle_end_hooks"]):
             h_off = hook_addr - arm9_ram
             curr = bytes(handler.rom.arm9[h_off : h_off + 4])

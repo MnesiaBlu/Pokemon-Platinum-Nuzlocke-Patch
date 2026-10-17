@@ -40,14 +40,18 @@ class TestFirstEncounterPatch(unittest.TestCase):
         h2_bytes = bytes(ov16_after.data[h2_off : h2_off + len(cfg["hook_expected"])])
         self.assertNotEqual(h2_bytes, cfg["hook_expected"])
 
-        # Verify Overlay 5 (Location Banner) was patched and expanded
+        # Verify Overlay 5 (Location Banner) was patched in-place (NOT expanded to preserve BSS)
         ov5_after = handler.load_arm9_overlay(cfg["ov5_id"])
-        self.assertEqual(len(ov5_after.data), 201664 + 512)
+        self.assertEqual(len(ov5_after.data), 201664)
         for h_addr in cfg["ov5_hooks"]:
             off = h_addr - ov5_after.ramAddress
             # Should be Thumb BL
             instr = int.from_bytes(ov5_after.data[off:off+4], "little")
             self.assertEqual((instr & 0xF800F800), 0xF800F000)
+
+        # Verify banner routine written to ARM9 free space
+        banner_off = cfg["banner_free_space_addr"] - handler.rom.arm9RamAddress
+        self.assertNotEqual(bytes(handler.rom.arm9[banner_off : banner_off + 176]), b"\x00" * 176)
 
         # Verify Overlay 80 (Town Map) was patched and expanded
         ov80_after = handler.load_arm9_overlay(cfg["ov80_id"])

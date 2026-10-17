@@ -335,6 +335,7 @@ class UniversalResolver:
             "fn_map_header_get_label_text_id": fn_map_header_get_label_text_id,
             "fn_save_data_get_pc_storage": fn_save_data_get_pc_storage,
             "fn_pc_storage_get_box_pokemon": fn_pc_storage_get_box_pokemon,
+            "banner_free_space_addr": 0x020F9408,
         }
 
     @classmethod
@@ -347,10 +348,10 @@ class UniversalResolver:
         heal_off = PatternScanner.find_pattern(arm9, "f0 b5 83 b0 00 90 ?? ?? ?? ?? 00 27 01 90 00 28 ?? dd")
         if heal_off is None:
             raise RuntimeError("Could not find Party_HealAllMembers signature in ARM9")
-        heal_addr = arm9_ram + heal_off
+        heal_addr = arm9_ram + heal_off + 0x22
 
         # Decode Party_GetCurrentCount from bl at heal_off + 6
-        fn_party_get_current_count = PatternScanner.decode_thumb_bl(arm9[heal_off+6:heal_off+10], heal_addr + 6)
+        fn_party_get_current_count = PatternScanner.decode_thumb_bl(arm9[heal_off+6:heal_off+10], arm9_ram + heal_off + 6)
 
         # Party_CheckItemEffectsOnMember
         item_match = PatternScanner.find_pattern(arm9, "38 b5 0d 1c 11 1c 1c 1c ?? ?? ?? ?? 04 9b 29 1c 22 1c ?? ?? ?? ?? 38 bd")
@@ -448,13 +449,15 @@ class UniversalResolver:
         battle_end_expected = [bytes(arm9[m + 4 : m + 8]) for m in battle_end_matches]
 
         return {
-            "arm9_free_space_addr": 0x020F9408,
             "party_heal_hook_addr": heal_addr,
-            "party_heal_expected": bytes(arm9[heal_off : heal_off + 8]),
+            "party_heal_expected": bytes(arm9[heal_off + 0x22 : heal_off + 0x26]),
+            "party_heal_free_space_addr": 0x020F35C0,
             "item_check_hook_addr": item_addr,
             "item_check_expected": bytes(arm9[item_off : item_off + 4]),
+            "item_check_free_space_addr": 0x020F3454,
             "hook_blackout_addr": hook_blackout_addr,
             "hook_blackout_expected": bytes(arm9[blackout_off : blackout_off + 4]),
+            "blackout_free_space_addr": 0x020F32EC,
             "fn_save_data_erase": fn_save_data_erase,
             "fn_soft_reset": fn_soft_reset,
             "save_data_ptr": save_data_ptr,
@@ -467,9 +470,10 @@ class UniversalResolver:
             "fn_pokemon_check_item_effects": fn_pokemon_check_item_effects,
             "revive_item_ids": [28, 29, 37, 44],
             "rare_candy_id": 50,
-            "ov5_id": 5,
             "battle_end_hooks": battle_end_hooks,
             "battle_end_expected": battle_end_expected,
+            "battle_end_part1_addr": 0x020F3184,
+            "battle_end_part2_addr": 0x020F3238,
             "fn_field_battle_transition_end": fn_field_battle_transition_end,
             "fn_party_remove_pokemon_by_slot": fn_party_remove_pokemon_by_slot,
             "fn_save_data_save_table": fn_save_data_save_table,
@@ -482,4 +486,5 @@ class UniversalResolver:
             "ov19_id": 19,
             "ov19_hook_addr": ov19_hook_addr,
             "ov19_hook_expected": ov19_hook_expected,
+            "ov19_free_space_addr": 0x021E0720,
         }
