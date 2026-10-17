@@ -59,7 +59,7 @@ Enforces the authentic Nuzlocke rule: the very first wild Pokémon encountered o
   - **Town Map Integration (Overlay 80)**: When viewing or hovering over routes on the Town Map (*Mappa Città*), route names show ` (O)` / ` (X)` status.
   - **Poké Ball Clause Aware**: Before receiving the Pokédex and starting Poké Balls, banners remain unmodified so early-game exploration is unaffected.
 
-### 3. Permadeath (`feature/permadeath`)
+### 3. Permadeath & Unmovable Graveyard (`feature/permadeath`, `feature/graveyard-box`)
 Enforces permanent faint / death mechanics across all recovery pathways:
 - **Revival Items Disabled**:
   - *Revive*, *Max Revive*, *Revival Herb*, and *Sacred Ash* have their revival parameters cleared in the item database (`pl_item_data.narc`).
@@ -68,6 +68,12 @@ Enforces permanent faint / death mechanics across all recovery pathways:
 - **Faint Preservation at Healing Facilities**:
   - The universal party healing function (`Party_HealAllMembers`), invoked by Nurse Joy, mothers, beds, and overworld doctors, detects party members with 0 HP and skips healing them.
   - Fainted Pokémon remain at 0 HP, with fainted status and unmodified PP.
+- **Unmovable Graveyard (Box 18 "CIMITERO")**:
+  - **Automatic Faint Transfer at Battle End**: Upon exiting any battle (Wild or Trainer) in which one or more party Pokémon fainted, `Custom_BattleEndTransition` in Overlay 5 scans the player's party:
+    - Each fallen Pokémon (curHP = 0) is automatically transferred to the first available slot in Box 18 and removed from the active party with `Party_RemovePokemonBySlot`.
+    - Surviving party members remain intact in the player's party.
+  - **Box 18 Dedicated "CIMITERO"**: Box 18 is permanently renamed **"CIMITERO"** in ARM9 via `PCStorage_GetBoxName`.
+  - **Inamovibile (Sealed Graveyard)**: The master PC Storage interaction validator in Overlay 19 (`Custom_GetBoxPokemon_OrGraveyardBlock`) intercepts all cursor actions in Box 18. Pokémon inside Box 18 cannot be withdrawn, moved, swapped, deposited, or released. The fallen Pokémon are permanently sealed in memorial.
 - **Hardcore Game Over on Blackout (Ironman Mode)**:
   - If all Pokémon in the party faint (a total party blackout/whiteout):
     - The blackout handler (`Field_PlayerLostBattle`) is intercepted by `Custom_BlackoutGameOver`.

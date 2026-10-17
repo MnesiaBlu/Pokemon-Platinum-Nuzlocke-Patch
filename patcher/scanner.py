@@ -387,6 +387,66 @@ class UniversalResolver:
         else:
             save_data_ptr = 0x021C08F4
 
+        # Battle end hooks in ARM9 (Trainer battle end & Wild battle end)
+        battle_end_matches = PatternScanner.find_all_patterns(arm9, "03 49 28 1c ?? ?? ?? ?? f8 bd")
+        if not battle_end_matches or len(battle_end_matches) < 2:
+            raise RuntimeError("Could not find battle end hook signatures in ARM9")
+        battle_end_hooks = [arm9_ram + m + 4 for m in battle_end_matches]
+        fn_field_battle_transition_end = (
+            PatternScanner.decode_thumb_bl(arm9[battle_end_matches[0]+4:battle_end_matches[0]+8], battle_end_hooks[0]) | 1
+        )
+
+        # Party_RemovePokemonBySlot in ARM9
+        m_remove = PatternScanner.find_pattern(arm9, "f8 b5 07 1c 0c 1c 01 d5")
+        if m_remove is not None:
+            fn_party_remove_pokemon_by_slot = (arm9_ram + m_remove) | 1
+        else:
+            fn_party_remove_pokemon_by_slot = 0x0207A121
+
+        # Box name hook in ARM9
+        m_box_name = PatternScanner.find_pattern(arm9, "19 68 12 29 ?? d2 10 1c ?? 4a 9b 18 28 22 4a 43")
+        box_name_hook_addr = arm9_ram + m_box_name + 8 if m_box_name is not None else 0x02079BA8
+        box_name_expected = (
+            bytes(arm9[m_box_name + 8 : m_box_name + 24])
+            if m_box_name is not None
+            else bytes.fromhex("054a9b1828224a439918aaf7f1f808bd")
+        )
+        fn_string_copy_from_u16_array = (
+            PatternScanner.decode_thumb_bl(arm9[m_box_name + 0x12 : m_box_name + 0x16], arm9_ram + m_box_name + 0x12) | 1
+            if m_box_name is not None
+            else 0x02023D99
+        )
+
+        # Overlay 19: PC Storage unmovable Graveyard hook
+        ov19 = rom_handler.load_arm9_overlay(19)
+        ov19_ram = ov19.ramAddress
+        ov19_data = bytes(ov19.data)
+        m_ov19 = PatternScanner.find_pattern(ov19_data, "07 22 a2 56 28 68 49 1e ?? ?? ?? ?? 20 60 15 e0")
+        ov19_hook_addr = ov19_ram + m_ov19 + 8 if m_ov19 is not None else 0x021D5484
+        ov19_hook_expected = (
+            bytes(ov19_data[m_ov19 + 8 : m_ov19 + 12])
+            if m_ov19 is not None
+            else bytes.fromhex("a4f65afc")
+        )
+
+        # Core functions for Graveyard
+        m_pc_storage = PatternScanner.find_pattern(arm9, "01 4b 25 21 18 47 c0 46")
+        fn_save_data_get_pc_storage = (arm9_ram + m_pc_storage) | 1 if m_pc_storage is not None else 0x02024491
+
+        m_box_mon = PatternScanner.find_pattern(arm9, "70 b5 0c 1c 05 1c 16 1c 12 2c 05 d3")
+        fn_pc_storage_get_box_pokemon = (arm9_ram + m_box_mon) | 1 if m_box_mon is not None else 0x02079D3D
+
+        trainer_info_off = PatternScanner.find_pattern(arm9, "08 b5 01 21 ?? ?? ?? ?? 00 1d 08 bd")
+        if trainer_info_off is not None:
+            fn_save_data_save_table = (
+                PatternScanner.decode_thumb_bl(arm9[trainer_info_off + 4 : trainer_info_off + 8], arm9_ram + trainer_info_off + 4)
+                | 1
+            )
+        else:
+            fn_save_data_save_table = 0x0202462D
+
+        battle_end_expected = [bytes(arm9[m + 4 : m + 8]) for m in battle_end_matches]
+
         return {
             "arm9_free_space_addr": 0x020F9408,
             "party_heal_hook_addr": heal_addr,
@@ -400,11 +460,26 @@ class UniversalResolver:
             "save_data_ptr": save_data_ptr,
             "fn_party_get_current_count": fn_party_get_current_count,
             "fn_party_get_pokemon_by_slot": fn_party_get_pokemon_by_slot,
-            "fn_pokemon_get_value": 0x02074510,
+            "fn_pokemon_get_value": 0x02074511,
             "fn_pokemon_set_value": 0x02074BD0,
             "fn_is_move_missing_pp": 0x02096FD4,
             "fn_restore_pokemon_move_pp": 0x02097024,
             "fn_pokemon_check_item_effects": fn_pokemon_check_item_effects,
             "revive_item_ids": [28, 29, 37, 44],
             "rare_candy_id": 50,
+            "ov5_id": 5,
+            "battle_end_hooks": battle_end_hooks,
+            "battle_end_expected": battle_end_expected,
+            "fn_field_battle_transition_end": fn_field_battle_transition_end,
+            "fn_party_remove_pokemon_by_slot": fn_party_remove_pokemon_by_slot,
+            "fn_save_data_save_table": fn_save_data_save_table,
+            "fn_save_data_get_pc_storage": fn_save_data_get_pc_storage,
+            "fn_pc_storage_get_box_pokemon": fn_pc_storage_get_box_pokemon,
+            "box_name_hook_addr": box_name_hook_addr,
+            "box_name_expected": box_name_expected,
+            "box_name_free_space_addr": 0x020F30D0,
+            "fn_string_copy_from_u16_array": fn_string_copy_from_u16_array,
+            "ov19_id": 19,
+            "ov19_hook_addr": ov19_hook_addr,
+            "ov19_hook_expected": ov19_hook_expected,
         }

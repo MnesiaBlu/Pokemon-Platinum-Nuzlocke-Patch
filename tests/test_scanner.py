@@ -99,6 +99,15 @@ class TestUniversalResolver(unittest.TestCase):
         self.assertEqual(cfg["fn_party_get_current_count"], 0x0207A198)
         self.assertEqual(cfg["fn_party_get_pokemon_by_slot"], 0x0207A19C)
         self.assertEqual(cfg["fn_pokemon_check_item_effects"], 0x020964C0)
+        self.assertEqual(cfg["ov5_id"], 5)
+        self.assertEqual(cfg["battle_end_hooks"], [0x020518E0, 0x02051946])
+        self.assertEqual(cfg["fn_field_battle_transition_end"], 0x020509A9)
+        self.assertEqual(cfg["fn_party_remove_pokemon_by_slot"], 0x0207A121)
+        self.assertEqual(cfg["box_name_hook_addr"], 0x02079BA8)
+        self.assertEqual(cfg["box_name_free_space_addr"], 0x020F30D0)
+        self.assertEqual(cfg["fn_string_copy_from_u16_array"], 0x02023D99)
+        self.assertEqual(cfg["ov19_id"], 19)
+        self.assertEqual(cfg["ov19_hook_addr"], 0x021D5484)
 
     def test_resolve_starter_by_tid(self):
         handler = RomHandler(self.rom_path)

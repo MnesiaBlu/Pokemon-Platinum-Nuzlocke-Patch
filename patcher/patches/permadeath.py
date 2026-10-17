@@ -1,6 +1,6 @@
-"""Permadeath Patch for Pokemon Platinum (Italian & US).
+"""Permadeath, Hardcore Game Over & Unmovable Graveyard Patch for Pokemon Platinum.
 
-Enforces the core Nuzlocke permadeath rule:
+Enforces the core Nuzlocke permadeath and graveyard rules:
 1. Fainted Pokemon (HP = 0) cannot be revived by any items (Revive, Max Revive,
    Revival Herb, Sacred Ash, or Rare Candy).
 2. Healing events (Pokemon Centers, beds, Mom, overworld doctors/healers)
@@ -8,6 +8,14 @@ Enforces the core Nuzlocke permadeath rule:
    fainted status.
 3. Item parameters in pl_item_data.narc have their revive attributes cleared,
    disabling in-battle and out-of-battle revival mechanics.
+4. Hardcore Game Over: Blackout / party wipe permanently wipes the primary
+   and backup save sectors via SaveData_Erase and triggers a hardware SoftReset.
+5. Unmovable Graveyard (Box 18 "CIMITERO"):
+   - When a Pokemon faints in battle, it is automatically transferred to Box 18
+     and removed from the active party upon battle transition end.
+   - Box 18 is renamed "CIMITERO" via PCStorage_GetBoxName.
+   - Box 18 is unmovable: all withdraw, move, swap, deposit, or release actions
+     in Box 18 are blocked via Overlay 19 PC storage menu validator.
 """
 
 import ndspy.narc
@@ -18,10 +26,12 @@ from ..scanner import UniversalResolver
 
 
 class PermadeathPatch(BasePatch):
-    name = "Permadeath & Hardcore Game Over"
+    name = "Permadeath, Hardcore Game Over & Unmovable Graveyard"
     description = (
         "Fainted Pokemon cannot be revived via items and remain fainted at Pokemon Centers. "
-        "A blackout (all party members fainted) triggers Game Over: save file is erased."
+        "Fallen party Pokemon are automatically transferred to Box 18 ('CIMITERO') and removed "
+        "from the active party at battle end. Box 18 is unmovable (cannot withdraw or move). "
+        "A blackout triggers mandatory Game Over: save file is completely erased."
     )
 
     CONFIG = {
@@ -37,14 +47,29 @@ class PermadeathPatch(BasePatch):
             "fn_soft_reset": 0x02000F75,
             "save_data_ptr": 0x021C08F4,
             "fn_party_get_current_count": 0x0207A198,
-            "fn_party_get_pokemon_by_slot": 0x0207A19C,
-            "fn_pokemon_get_value": 0x02074510,
+            "fn_party_get_pokemon_by_slot": 0x0207A19D,
+            "fn_pokemon_get_value": 0x02074511,
             "fn_pokemon_set_value": 0x02074BD0,
             "fn_is_move_missing_pp": 0x02096FD4,
             "fn_restore_pokemon_move_pp": 0x02097024,
             "fn_pokemon_check_item_effects": 0x020964C0,
             "revive_item_ids": [28, 29, 37, 44],  # Revive, Max Revive, Revival Herb, Sacred Ash
             "rare_candy_id": 50,
+            "ov5_id": 5,
+            "battle_end_hooks": [0x020518E0, 0x02051946],
+            "battle_end_expected": [bytes.fromhex("fff762f8"), bytes.fromhex("fff72ff8")],
+            "fn_field_battle_transition_end": 0x020509A9,
+            "fn_party_remove_pokemon_by_slot": 0x0207A121,
+            "fn_save_data_save_table": 0x0202462D,
+            "fn_save_data_get_pc_storage": 0x02024491,
+            "fn_pc_storage_get_box_pokemon": 0x02079D3D,
+            "box_name_hook_addr": 0x02079BA8,
+            "box_name_expected": bytes.fromhex("054a9b1828224a439918aaf7f1f808bd"),
+            "box_name_free_space_addr": 0x020F30D0,
+            "fn_string_copy_from_u16_array": 0x02023D99,
+            "ov19_id": 19,
+            "ov19_hook_addr": 0x021D5484,
+            "ov19_hook_expected": bytes.fromhex("a4f65afc"),
         }
     }
 
@@ -193,16 +218,268 @@ Custom_BlackoutGameOver:
     ldr r0, [r0]
 
     @ 2. Call SaveData_Erase(saveData)
-    ldr r2, ={hex(cfg['fn_save_data_erase'])}
+    ldr r2, ={hex(cfg['fn_save_data_erase'] | 1)}
     blx r2
 
     @ 3. Call SoftReset(0)
     movs r0, #0
-    ldr r2, ={hex(cfg['fn_soft_reset'])}
+    ldr r2, ={hex(cfg['fn_soft_reset'] | 1)}
     blx r2
 
 .dead_halt:
     b .dead_halt
+"""
+        return self.asm.assemble_thumb(asm_code, base_addr)
+
+    def generate_box_name_code(self, cfg: dict, base_addr: int) -> bytes:
+        """Generate Custom_GetBoxName routine (64 bytes).
+
+        If box == 17 (Box 18), sets name to 'CIMITERO'.
+        Otherwise, calculates offset into pcStorage and copies normal box name.
+        """
+        asm_code = f"""
+.thumb
+.align 2
+Custom_GetBoxName:
+    push {{r4, lr}}
+    cmp r1, #17
+    bne .normal_box
+
+    @ Box 18 (index 17) -> 'CIMITERO'
+    adr r1, .str_cimitero
+    ldr r2, ={hex(cfg['fn_string_copy_from_u16_array'] | 1)}
+    blx r2
+    pop {{r4, pc}}
+
+.normal_box:
+    ldr r2, =0x11EE4
+    adds r3, r3, r2
+    movs r2, #40
+    muls r2, r1, r2
+    adds r1, r3, r2
+    ldr r2, ={hex(cfg['fn_string_copy_from_u16_array'] | 1)}
+    blx r2
+    pop {{r4, pc}}
+
+.align 2
+.str_cimitero:
+    .short 0x012D, 0x0133, 0x0137, 0x0133, 0x013E, 0x012F, 0x013C, 0x0139, 0xFFFF
+"""
+        return self.asm.assemble_thumb(asm_code, base_addr)
+
+    def generate_graveyard_box_code(self, cfg: dict, base_addr: int) -> bytes:
+        """Generate Custom_GetBoxPokemon_OrGraveyardBlock routine (28 bytes).
+
+        In Overlay 19 PC storage menu validator:
+        If box == 17 (or box < 0 and currentBox == 17), returns NULL (0)
+        to completely block any withdraw, move, swap, deposit, or release actions in Box 18.
+        """
+        asm_code = f"""
+.thumb
+.align 2
+Custom_GetBoxPokemon_OrGraveyardBlock:
+    push {{r4, lr}}
+    adds r4, r1, #0
+    cmp r4, #0
+    bge .check_box17
+    ldr r4, [r0]
+
+.check_box17:
+    cmp r4, #17
+    bne .allow_access
+
+    movs r0, #0
+    pop {{r4, pc}}
+
+.allow_access:
+    ldr r3, ={hex(cfg['fn_pc_storage_get_box_pokemon'] | 1)}
+    blx r3
+    pop {{r4, pc}}
+"""
+        return self.asm.assemble_thumb(asm_code, base_addr)
+
+    def generate_battle_end_code(self, cfg: dict, base_addr: int) -> bytes:
+        """Generate Custom_BattleEndTransition routine.
+
+        Called at battle end:
+        1. Checks party for alive Pokémon. If 0 alive, triggers blackout game over.
+        2. Iterates party backwards from count - 1 down to 0.
+        3. For any Pokémon with curHP == 0:
+           - Copies 136-byte BoxPokemon into the first empty slot in Box 18 (index 17).
+           - Removes the Pokémon from the party using Party_RemovePokemonBySlot.
+        4. Resumes normal battle transition via fn_field_battle_transition_end.
+        """
+        asm_code = f"""
+.thumb
+.align 2
+Custom_BattleEndTransition:
+    push {{r4, r5, r6, r7, lr}}
+    sub sp, #28
+    str r0, [sp, #16]
+    str r1, [sp, #20]
+    str r2, [sp, #24]
+
+    @ 1. Get SaveData pointer
+    ldr r0, ={hex(cfg['save_data_ptr'])}
+    ldr r0, [r0]
+    cmp r0, #0
+    beq .finish_transition
+    str r0, [sp, #8]
+
+    @ 2. Get Party: SaveData_SaveTable(saveData, 2)
+    movs r1, #2
+    ldr r3, ={hex(cfg['fn_save_data_save_table'] | 1)}
+    blx r3
+    cmp r0, #0
+    beq .finish_transition
+    str r0, [sp, #4]
+
+    @ 3. Get PC Storage: SaveData_GetPCStorage(saveData)
+    ldr r0, [sp, #8]
+    ldr r3, ={hex(cfg['fn_save_data_get_pc_storage'] | 1)}
+    blx r3
+    cmp r0, #0
+    beq .finish_transition
+    str r0, [sp, #0]
+
+    @ 4. Check Party Count
+    ldr r0, [sp, #4]
+    ldr r4, [r0, #4]
+    cmp r4, #0
+    ble .finish_transition
+    cmp r4, #6
+    ble .party_cnt_valid
+    movs r4, #6
+.party_cnt_valid:
+
+    @ 5. Check how many are alive
+    movs r5, #0
+    movs r6, #0
+.count_alive_loop:
+    ldr r0, [sp, #4]
+    adds r1, r6, #0
+    ldr r3, ={hex(cfg['fn_party_get_pokemon_by_slot'] | 1)}
+    blx r3
+    cmp r0, #0
+    beq .count_alive_next
+
+    str r0, [sp, #12]
+    movs r1, #5
+    movs r2, #0
+    ldr r3, ={hex(cfg['fn_pokemon_get_value'] | 1)}
+    blx r3
+    cmp r0, #0
+    beq .count_alive_next
+
+    ldr r0, [sp, #12]
+    movs r1, #0xa3
+    movs r2, #0
+    ldr r3, ={hex(cfg['fn_pokemon_get_value'] | 1)}
+    blx r3
+    cmp r0, #0
+    beq .count_alive_next
+
+    adds r5, r5, #1
+
+.count_alive_next:
+    adds r6, r6, #1
+    cmp r6, r4
+    blt .count_alive_loop
+
+    cmp r5, #0
+    bne .process_dead_members
+
+    @ All dead! Trigger Game Over
+    ldr r0, [sp, #8]
+    ldr r2, ={hex(cfg['fn_save_data_erase'] | 1)}
+    blx r2
+    movs r0, #0
+    ldr r2, ={hex(cfg['fn_soft_reset'] | 1)}
+    blx r2
+
+.process_dead_members:
+    ldr r0, [sp, #4]
+    ldr r5, [r0, #4]
+    subs r5, r5, #1
+
+.party_backwards_loop:
+    cmp r5, #0
+    blt .finish_transition
+
+    ldr r0, [sp, #4]
+    adds r1, r5, #0
+    ldr r3, ={hex(cfg['fn_party_get_pokemon_by_slot'] | 1)}
+    blx r3
+    cmp r0, #0
+    beq .party_slot_next
+
+    str r0, [sp, #12]
+
+    movs r1, #5
+    movs r2, #0
+    ldr r3, ={hex(cfg['fn_pokemon_get_value'] | 1)}
+    blx r3
+    cmp r0, #0
+    beq .party_slot_next
+
+    ldr r0, [sp, #12]
+    movs r1, #0xa3
+    movs r2, #0
+    ldr r3, ={hex(cfg['fn_pokemon_get_value'] | 1)}
+    blx r3
+    cmp r0, #0
+    bne .party_slot_next
+
+    @ Mon is fainted: find first empty slot in Box 18 (index 17)
+    movs r6, #0
+.find_box18_slot:
+    ldr r0, [sp, #0]
+    movs r1, #17
+    adds r2, r6, #0
+    ldr r3, ={hex(cfg['fn_pc_storage_get_box_pokemon'] | 1)}
+    blx r3
+    cmp r0, #0
+    beq .box18_next_slot
+
+    ldr r1, [r0, #0]
+    cmp r1, #0
+    beq .do_transfer_to_box18
+
+.box18_next_slot:
+    adds r6, r6, #1
+    cmp r6, #30
+    blt .find_box18_slot
+    b .remove_from_party
+
+.do_transfer_to_box18:
+    ldr r1, [sp, #12]
+    movs r2, #34
+.copy_boxmon:
+    ldr r3, [r1, #0]
+    str r3, [r0, #0]
+    adds r1, #4
+    adds r0, #4
+    subs r2, r2, #1
+    bne .copy_boxmon
+
+.remove_from_party:
+    ldr r0, [sp, #4]
+    adds r1, r5, #0
+    ldr r3, ={hex(cfg['fn_party_remove_pokemon_by_slot'] | 1)}
+    blx r3
+
+.party_slot_next:
+    subs r5, r5, #1
+    b .party_backwards_loop
+
+.finish_transition:
+    ldr r0, [sp, #16]
+    ldr r1, [sp, #20]
+    ldr r2, [sp, #24]
+    add sp, #28
+    ldr r3, ={hex(cfg['fn_field_battle_transition_end'] | 1)}
+    blx r3
+    pop {{r4, r5, r6, r7, pc}}
 """
         return self.asm.assemble_thumb(asm_code, base_addr)
 
@@ -280,7 +557,6 @@ Custom_BlackoutGameOver:
         arm9[blackout_free_off : blackout_free_off + len(blackout_bytes)] = blackout_bytes
 
         # 4. Hook 1: Party_HealAllMembers universal 8-byte jump
-        # ldr r3, [pc, #0]; bx r3; .word heal_fn_addr | 1
         heal_hook_asm = f"""
 .thumb
 ldr r3, [pc, #0]
@@ -306,5 +582,92 @@ bl #{hex(blackout_fn_addr)}
 """
         blackout_hook_bytes = self.asm.assemble_thumb(blackout_hook_asm, cfg["hook_blackout_addr"])
         arm9[blackout_off : blackout_off + len(blackout_hook_bytes)] = blackout_hook_bytes
+
+        # 7. Box 18 Naming ('CIMITERO') in ARM9
+        if "box_name_hook_addr" in cfg and "box_name_free_space_addr" in cfg:
+            box_hook_off = cfg["box_name_hook_addr"] - arm9_ram
+            if "box_name_expected" in cfg:
+                box_curr = bytes(arm9[box_hook_off : box_hook_off + len(cfg["box_name_expected"])])
+                if box_curr != cfg["box_name_expected"]:
+                    raise RuntimeError(
+                        f"Hook mismatch at 0x{cfg['box_name_hook_addr']:08X}! "
+                        f"Expected {cfg['box_name_expected'].hex()}, got {box_curr.hex()}"
+                    )
+            box_fn_addr = cfg["box_name_free_space_addr"]
+            box_bytes = self.generate_box_name_code(cfg, box_fn_addr)
+            box_free_off = box_fn_addr - arm9_ram
+            arm9[box_free_off : box_free_off + len(box_bytes)] = box_bytes
+
+            box_hook_asm = f"""
+.thumb
+bl #{hex(box_fn_addr)}
+pop {{r3, pc}}
+nop
+nop
+nop
+nop
+nop
+"""
+            box_hook_bytes = self.asm.assemble_thumb(box_hook_asm, cfg["box_name_hook_addr"])
+            arm9[box_hook_off : box_hook_off + len(box_hook_bytes)] = box_hook_bytes
+
+        # 8. Unmovable Box 18 in Overlay 19
+        if "ov19_id" in cfg and "ov19_hook_addr" in cfg:
+            ov19 = rom_handler.load_arm9_overlay(cfg["ov19_id"])
+            ov19_ram = ov19.ramAddress
+            ov19_hook_off = cfg["ov19_hook_addr"] - ov19_ram
+
+            if "ov19_hook_expected" in cfg:
+                ov19_curr = bytes(ov19.data[ov19_hook_off : ov19_hook_off + len(cfg["ov19_hook_expected"])])
+                if ov19_curr != cfg["ov19_hook_expected"]:
+                    raise RuntimeError(
+                        f"Hook mismatch at 0x{cfg['ov19_hook_addr']:08X}! "
+                        f"Expected {cfg['ov19_hook_expected'].hex()}, got {ov19_curr.hex()}"
+                    )
+
+            orig_size_19 = len(ov19.data)
+            custom_base_19 = ov19_ram + orig_size_19
+            code_bytes_19 = self.generate_graveyard_box_code(cfg, custom_base_19)
+            pad_19 = (512 - (len(code_bytes_19) % 512)) % 512
+            new_data_19 = bytearray(bytes(ov19.data) + code_bytes_19 + (b"\x00" * pad_19))
+
+            hook19_code = f"bl #{hex(custom_base_19)}"
+            hook19_bytes = self.asm.assemble_thumb(hook19_code, cfg["ov19_hook_addr"])
+            new_data_19[ov19_hook_off : ov19_hook_off + len(hook19_bytes)] = hook19_bytes
+
+            rom_handler.update_arm9_overlay(
+                cfg["ov19_id"], ov19, bytes(new_data_19), new_ram_size=len(new_data_19)
+            )
+
+        # 9. Automatic Faint Transfer on Battle End (Overlay 5 + ARM9 battle end hooks)
+        if "ov5_id" in cfg and "battle_end_hooks" in cfg:
+            if "battle_end_expected" in cfg:
+                for idx, hook_addr in enumerate(cfg["battle_end_hooks"]):
+                    expected = cfg["battle_end_expected"][idx]
+                    h_off = hook_addr - arm9_ram
+                    curr = bytes(arm9[h_off : h_off + len(expected)])
+                    if curr != expected:
+                        raise RuntimeError(
+                            f"Hook mismatch at 0x{hook_addr:08X}! "
+                            f"Expected {expected.hex()}, got {curr.hex()}"
+                        )
+
+            ov5 = rom_handler.load_arm9_overlay(cfg["ov5_id"])
+            ov5_ram = ov5.ramAddress
+            orig_size_5 = len(ov5.data)
+            custom_base_5 = ov5_ram + orig_size_5
+            code_bytes_5 = self.generate_battle_end_code(cfg, custom_base_5)
+            pad_5 = (512 - (len(code_bytes_5) % 512)) % 512
+            new_data_5 = bytearray(bytes(ov5.data) + code_bytes_5 + (b"\x00" * pad_5))
+
+            rom_handler.update_arm9_overlay(
+                cfg["ov5_id"], ov5, bytes(new_data_5), new_ram_size=len(new_data_5)
+            )
+
+            for hook_addr in cfg["battle_end_hooks"]:
+                hook_code = f"bl #{hex(custom_base_5)}"
+                hook_bytes = self.asm.assemble_thumb(hook_code, hook_addr)
+                h_off = hook_addr - arm9_ram
+                arm9[h_off : h_off + len(hook_bytes)] = hook_bytes
 
         return True
