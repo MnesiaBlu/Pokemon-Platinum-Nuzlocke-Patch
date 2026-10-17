@@ -54,6 +54,10 @@ Enforces the authentic Nuzlocke rule: the very first wild Pokémon encountered o
 - **Encounter Behavior on Burned Routes**:
   - Throwing any Poké Ball on a consumed route is blocked: the ball shakes 0 times and breaks out immediately with the native game message *"Oh no! The Pokémon broke free!"*.
   - Catching tutorial sequences (e.g. Lucas/Dawn on Route 202) and Pal Park transfers are preserved and never blocked.
+- **Visual Catch Status Indicators (`feature/encounter-visual-alerts`)**:
+  - **Overworld Location Banner (Overlay 5)**: When entering any route, forest, or area, the banner dynamically appends ` (O)` if the encounter is available or ` (X)` if consumed or already owned.
+  - **Town Map Integration (Overlay 80)**: When viewing or hovering over routes on the Town Map (*Mappa Città*), route names show ` (O)` / ` (X)` status.
+  - **Poké Ball Clause Aware**: Before receiving the Pokédex and starting Poké Balls, banners remain unmodified so early-game exploration is unaffected.
 
 ### 3. Permadeath (`feature/permadeath`)
 Enforces permanent faint / death mechanics across all recovery pathways:

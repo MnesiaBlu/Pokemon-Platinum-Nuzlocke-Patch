@@ -265,6 +265,54 @@ class UniversalResolver:
         else:
             save_data_ptr = 0x021C08F4
 
+        # Overlay 5: Overworld Location Banner hooks
+        ov5 = rom_handler.load_arm9_overlay(5)
+        ov5_ram = ov5.ramAddress
+        ov5_data = bytes(ov5.data)
+        ov5_matches = PatternScanner.find_all_patterns(ov5_data, "e0 6b a1 69 22 6c ?? ?? ?? ?? 01 1c")
+        if not ov5_matches or len(ov5_matches) < 2:
+            raise RuntimeError("Could not find MapHeader_LoadString hook signatures in Overlay 5")
+        ov5_hooks = [ov5_ram + m + 6 for m in ov5_matches]
+
+        # Overlay 80: Town Map (Mappa Citta) hooks
+        ov80 = rom_handler.load_arm9_overlay(80)
+        ov80_ram = ov80.ramAddress
+        ov80_data = bytes(ov80.data)
+        ov80_matches = PatternScanner.find_all_patterns(ov80_data, "88 34 22 68 ?? ?? ?? ??")
+        ov80_hooks = [ov80_ram + m + 4 for m in ov80_matches]
+        m3 = PatternScanner.find_pattern(ov80_data, "88 34 22 68 00 20 ?? ?? ?? ??")
+        if m3 is not None and len(ov80_hooks) >= 2:
+            ov80_hooks = [ov80_hooks[0], ov80_hooks[1], ov80_ram + m3 + 6]
+
+        # ARM9 functions for string and storage manipulation
+        m_load_str = PatternScanner.find_pattern(arm9, "10 b5 14 1c ?? ?? ?? ?? 00 20 21 1c 02 1c ?? ?? ?? ?? 10 bd")
+        if m_load_str is not None:
+            fn_msg_loader_get_string = (
+                PatternScanner.decode_thumb_bl(arm9[m_load_str+4:m_load_str+8], arm9_ram + m_load_str + 4) | 1
+            )
+            fn_font_calc_string_width = (
+                PatternScanner.decode_thumb_bl(arm9[m_load_str+14:m_load_str+18], arm9_ram + m_load_str + 14) | 1
+            )
+        else:
+            fn_msg_loader_get_string = 0x0200B1CD
+            fn_font_calc_string_width = 0x02002D91
+
+        m_get_name = PatternScanner.find_pattern(arm9, "70 b5 16 1c 05 1c 0b 1c ?? 4a 01 20 1a 21 ?? ?? ?? ?? 04 1c")
+        if m_get_name is not None:
+            fn_map_header_get_map_name_string = (arm9_ram + m_get_name) | 1
+            fn_map_header_get_label_text_id = (
+                PatternScanner.decode_thumb_bl(arm9[m_get_name+0x16:m_get_name+0x1a], arm9_ram + m_get_name + 0x16) | 1
+            )
+        else:
+            fn_map_header_get_map_name_string = 0x02071DA5
+            fn_map_header_get_label_text_id = 0x0203A1DD
+
+        m_pc_storage = PatternScanner.find_pattern(arm9, "01 4b 25 21 18 47 c0 46")
+        fn_save_data_get_pc_storage = (arm9_ram + m_pc_storage) | 1 if m_pc_storage is not None else 0x02024491
+
+        m_box_mon = PatternScanner.find_pattern(arm9, "70 b5 0c 1c 05 1c 16 1c 12 2c 05 d3")
+        fn_pc_storage_get_box_pokemon = (arm9_ram + m_box_mon) | 1 if m_box_mon is not None else 0x02079D3D
+
         return {
             "overlay_id": 16,
             "hook_init_addr": h1_addr,
@@ -277,6 +325,16 @@ class UniversalResolver:
             "fn_pokemon_get_value": 0x02074511,
             "fn_box_pokemon_get_value": 0x02074611,
             "fn_battle_calc_shakes": fn_battle_calc_shakes,
+            "ov5_id": 5,
+            "ov5_hooks": ov5_hooks,
+            "fn_msg_loader_get_string": fn_msg_loader_get_string,
+            "fn_font_calc_string_width": fn_font_calc_string_width,
+            "ov80_id": 80,
+            "ov80_hooks": ov80_hooks,
+            "fn_map_header_get_map_name_string": fn_map_header_get_map_name_string,
+            "fn_map_header_get_label_text_id": fn_map_header_get_label_text_id,
+            "fn_save_data_get_pc_storage": fn_save_data_get_pc_storage,
+            "fn_pc_storage_get_box_pokemon": fn_pc_storage_get_box_pokemon,
         }
 
     @classmethod
