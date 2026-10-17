@@ -151,3 +151,10 @@ python -m unittest discover tests
 - **AI-Assisted Project**: This project was designed and developed with the assistance of Artificial Intelligence (AI) for reverse-engineering research, assembly patch engineering, test suite implementation, and documentation.
 - **Trademarks & Copyrights**: Pokémon and Nintendo DS are registered trademarks and copyrights of Nintendo, Creatures Inc., and GAME FREAK inc. This repository is an unofficial, non-commercial fan-made project created solely for research and personal entertainment purposes.
 
+---
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).
+
+
