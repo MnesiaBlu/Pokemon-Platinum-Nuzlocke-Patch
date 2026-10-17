@@ -47,6 +47,10 @@ class TestPermadeathPatch(unittest.TestCase):
         item_bytes = bytes(handler.rom.arm9[item_off : item_off + len(cfg["item_check_expected"])])
         self.assertNotEqual(item_bytes, cfg["item_check_expected"])
 
+        blackout_off = cfg["hook_blackout_addr"] - arm9_ram
+        blackout_bytes = bytes(handler.rom.arm9[blackout_off : blackout_off + len(cfg["hook_blackout_expected"])])
+        self.assertNotEqual(blackout_bytes, cfg["hook_blackout_expected"])
+
         # 3. Verify custom routines written to free space
         free_off = cfg["arm9_free_space_addr"] - arm9_ram
         free_chunk = handler.rom.arm9[free_off : free_off + 180]

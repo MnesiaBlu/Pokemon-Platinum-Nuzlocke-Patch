@@ -35,8 +35,8 @@ FEATURE_DETAILS = {
         "desc": "Exactly one catch chance per route; fleeing or defeating it permanently burns the route",
     },
     "permadeath": {
-        "title": "Complete Permadeath",
-        "desc": "Fainted Pokemon cannot be revived by items or healed at Pokemon Centers",
+        "title": "Permadeath & Hardcore Game Over",
+        "desc": "Fainted Pokemon cannot be revived; blacking out erases save file (Game Over)",
     },
     "starter-by-tid": {
         "title": "Starter by Trainer ID",

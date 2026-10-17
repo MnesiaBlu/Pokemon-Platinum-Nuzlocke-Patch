@@ -18,9 +18,10 @@ from ..scanner import UniversalResolver
 
 
 class PermadeathPatch(BasePatch):
-    name = "Permadeath"
+    name = "Permadeath & Hardcore Game Over"
     description = (
-        "Fainted Pokemon cannot be revived via items and remain fainted at Pokemon Centers."
+        "Fainted Pokemon cannot be revived via items and remain fainted at Pokemon Centers. "
+        "A blackout (all party members fainted) triggers Game Over: save file is erased."
     )
 
     CONFIG = {
@@ -30,6 +31,11 @@ class PermadeathPatch(BasePatch):
             "party_heal_expected": bytes.fromhex("f0b583b00090e2f7"),
             "item_check_hook_addr": 0x020969EE,
             "item_check_expected": bytes.fromhex("fff767fd"),
+            "hook_blackout_addr": 0x02051954,
+            "hook_blackout_expected": bytes.fromhex("38b5041c"),
+            "fn_save_data_erase": 0x02024659,
+            "fn_soft_reset": 0x02000F75,
+            "save_data_ptr": 0x021C08F4,
             "fn_party_get_current_count": 0x0207A198,
             "fn_party_get_pokemon_by_slot": 0x0207A19C,
             "fn_pokemon_get_value": 0x02074510,
@@ -169,6 +175,37 @@ Party_CheckItemEffects_Nuzlocke:
 """
         return self.asm.assemble_thumb(asm_code, base_addr)
 
+    def generate_blackout_code(self, cfg: dict, base_addr: int) -> bytes:
+        """Generate Custom_BlackoutGameOver routine.
+
+        When the player blacks out (all party Pokémon fainted):
+        1. Calls SaveData_Erase(saveData) to completely wipe all primary and backup save sectors.
+        2. Calls SoftReset(0) to reset the console directly to the title screen.
+        """
+        asm_code = f"""
+.thumb
+.align 2
+Custom_BlackoutGameOver:
+    push {{r4, lr}}
+
+    @ 1. Get SaveData pointer
+    ldr r0, ={hex(cfg['save_data_ptr'])}
+    ldr r0, [r0]
+
+    @ 2. Call SaveData_Erase(saveData)
+    ldr r2, ={hex(cfg['fn_save_data_erase'])}
+    blx r2
+
+    @ 3. Call SoftReset(0)
+    movs r0, #0
+    ldr r2, ={hex(cfg['fn_soft_reset'])}
+    blx r2
+
+.dead_halt:
+    b .dead_halt
+"""
+        return self.asm.assemble_thumb(asm_code, base_addr)
+
     def apply(self, rom_handler: RomHandler) -> bool:
         cfg = self.CONFIG.get(rom_handler.game_code)
         if not cfg:
@@ -215,6 +252,14 @@ Party_CheckItemEffects_Nuzlocke:
                 f"Expected {cfg['item_check_expected'].hex()}, got {item_curr.hex()}"
             )
 
+        blackout_off = cfg["hook_blackout_addr"] - arm9_ram
+        blackout_curr = bytes(arm9[blackout_off : blackout_off + len(cfg["hook_blackout_expected"])])
+        if blackout_curr != cfg["hook_blackout_expected"]:
+            raise RuntimeError(
+                f"Hook mismatch at 0x{cfg['hook_blackout_addr']:08X}! "
+                f"Expected {cfg['hook_blackout_expected'].hex()}, got {blackout_curr.hex()}"
+            )
+
         # 3. Assemble and place custom code in ARM9 free space
         heal_fn_addr = cfg["arm9_free_space_addr"]
         heal_bytes = self.generate_party_heal_code(cfg, heal_fn_addr)
@@ -222,11 +267,17 @@ Party_CheckItemEffects_Nuzlocke:
         item_fn_addr = (heal_fn_addr + len(heal_bytes) + 3) & ~3
         item_bytes = self.generate_item_check_code(cfg, item_fn_addr)
 
+        blackout_fn_addr = (item_fn_addr + len(item_bytes) + 3) & ~3
+        blackout_bytes = self.generate_blackout_code(cfg, blackout_fn_addr)
+
         free_off = heal_fn_addr - arm9_ram
         arm9[free_off : free_off + len(heal_bytes)] = heal_bytes
 
         item_free_off = item_fn_addr - arm9_ram
         arm9[item_free_off : item_free_off + len(item_bytes)] = item_bytes
+
+        blackout_free_off = blackout_fn_addr - arm9_ram
+        arm9[blackout_free_off : blackout_free_off + len(blackout_bytes)] = blackout_bytes
 
         # 4. Hook 1: Party_HealAllMembers universal 8-byte jump
         # ldr r3, [pc, #0]; bx r3; .word heal_fn_addr | 1
@@ -247,5 +298,13 @@ bl #{hex(item_fn_addr)}
 """
         item_hook_bytes = self.asm.assemble_thumb(item_hook_asm, cfg["item_check_hook_addr"])
         arm9[item_off : item_off + len(item_hook_bytes)] = item_hook_bytes
+
+        # 6. Hook 3: Blackout penalty handler -> bl Custom_BlackoutGameOver
+        blackout_hook_asm = f"""
+.thumb
+bl #{hex(blackout_fn_addr)}
+"""
+        blackout_hook_bytes = self.asm.assemble_thumb(blackout_hook_asm, cfg["hook_blackout_addr"])
+        arm9[blackout_off : blackout_off + len(blackout_hook_bytes)] = blackout_hook_bytes
 
         return True
