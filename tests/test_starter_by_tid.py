@@ -34,7 +34,7 @@ class TestStarterByTidPatch(unittest.TestCase):
         # 1. Verify overlay table entry updated
         e_patched = handler.get_overlay_entry(cfg["overlay_id"])
         self.assertGreater(e_patched["ram_size"], orig_ram_size)
-        self.assertEqual(e_patched["ram_size"], orig_ram_size + 172)
+        self.assertEqual(e_patched["ram_size"], orig_ram_size + 164)
 
         # 2. Reload overlay and verify modifications
         ov78 = handler.load_arm9_overlay(cfg["overlay_id"])
@@ -61,10 +61,9 @@ class TestStarterByTidPatch(unittest.TestCase):
 
         # 3. Verify appended custom code
         appended_code = bytes(ov78.data[orig_ram_size:])
-        self.assertEqual(len(appended_code), 172)
-        # Verify literal pool entries (SaveDataPtr 0x021C08F4 and TrainerInfo func 0x02025EA8)
+        self.assertEqual(len(appended_code), 164)
+        # Verify literal pool entry (SaveDataPtr 0x021C08F4)
         self.assertIn(bytes.fromhex("f4081c02"), appended_code)
-        self.assertIn(bytes.fromhex("a85e0202"), appended_code)
 
     def test_tid_starter_mapping_logic(self):
         """Verify the mathematical mapping logic across all Trainer ID digits."""

@@ -54,17 +54,19 @@ class StarterByTidPatch(BasePatch):
         Returns:
             Tuple of (assembled_bytes, addr_hook1, addr_hook2, addr_hook3).
         """
-        asm_code = f"""
+        # 1. GetStarterByTid routine:
+        # Reads SaveData -> TrainerInfo -> TID % 10.
+        # Returns 0 (Turtwig), 1 (Chimchar), 2 (Piplup), or 0xFF (Player Choice for digit 0).
+        code_tid = f"""
 .thumb
 .align 2
 GetStarterByTid:
-    push {{r1, r2, lr}}
+    push {{r4, lr}}
     ldr r0, ={hex(cfg['save_data_ptr'])}
     ldr r0, [r0]
     cmp r0, #0
     beq .free_choice
-    ldr r1, ={hex(cfg['fn_save_get_trainer_info'])}
-    blx r1
+    bl #{hex(cfg['fn_save_get_trainer_info'])}
     cmp r0, #0
     beq .free_choice
     ldr r0, [r0, #0x10]
@@ -87,50 +89,76 @@ GetStarterByTid:
     ble .chimchar
 .piplup:
     movs r0, #2
-    pop {{r1, r2, pc}}
+    pop {{r4, pc}}
 .chimchar:
     movs r0, #1
-    pop {{r1, r2, pc}}
+    pop {{r4, pc}}
 .turtwig:
     movs r0, #0
-    pop {{r1, r2, pc}}
+    pop {{r4, pc}}
 .free_choice:
     movs r0, #0xFF
-    pop {{r1, r2, pc}}
+    pop {{r4, pc}}
+"""
+        b_tid = self.asm.assemble_thumb(code_tid, base_addr)
+        pad1 = (4 - (len(b_tid) % 4)) % 4
+        addr_init = base_addr + len(b_tid) + pad1
 
+        # 2. Hook_ChooseStarter_Init:
+        # Sets initial cursorPosition (offset 0x54) to assigned starter if not free choice.
+        # Restores stack and pops directly to ChooseStarter_Init's caller.
+        code_init = f"""
+.thumb
 .align 2
 Hook_ChooseStarter_Init:
-    push {{lr}}
-    bl GetStarterByTid
+    push {{r3, lr}}
+    bl #{hex(base_addr)}
     cmp r0, #0xFF
     beq .init_done
     str r0, [r5, #0x54]
 .init_done:
-    pop {{r3}}
+    pop {{r3, r4}}
     movs r0, #1
     add sp, #0x10
     pop {{r3, r4, r5, pc}}
+"""
+        b_init = self.asm.assemble_thumb(code_init, addr_init)
+        pad2 = (4 - (len(b_init) % 4)) % 4
+        addr_choice = addr_init + len(b_init) + pad2
 
+        # 3. Hook_ChangePokeballChoice:
+        # If free choice, calls original ChangePokeballChoice (allowing D-Pad navigation).
+        # Otherwise locks cursor on assigned starter.
+        code_choice = f"""
+.thumb
 .align 2
 Hook_ChangePokeballChoice:
     push {{r4, lr}}
     adds r4, r0, #0
-    bl GetStarterByTid
+    bl #{hex(base_addr)}
     cmp r0, #0xFF
     beq .allow_choice
     str r0, [r4, #0x54]
     pop {{r4, pc}}
 .allow_choice:
     adds r0, r4, #0
-    ldr r1, ={hex(cfg['fn_change_pokeball_choice'])}
-    blx r1
+    bl #{hex(cfg['fn_change_pokeball_choice'])}
     pop {{r4, pc}}
+"""
+        b_choice = self.asm.assemble_thumb(code_choice, addr_choice)
+        pad3 = (4 - (len(b_choice) % 4)) % 4
+        addr_species = addr_choice + len(b_choice) + pad3
 
+        # 4. Hook_GetSelectedSpecies:
+        # Overrides species returned to field (387 Turtwig, 390 Chimchar, 393 Piplup),
+        # or respects player's selection if free choice.
+        code_species = f"""
+.thumb
 .align 2
 Hook_GetSelectedSpecies:
     push {{r4, lr}}
     adds r4, r0, #0
-    bl GetStarterByTid
+    bl #{hex(base_addr)}
     cmp r0, #0xFF
     bne .return_mandated
     adds r0, r4, #0
@@ -148,11 +176,18 @@ Hook_GetSelectedSpecies:
     ldr r0, =387
     pop {{r4, pc}}
 """
-        raw_bytes = self.asm.assemble_thumb(asm_code, base_addr)
-        addr_hook1 = base_addr + 0x40
-        addr_hook2 = base_addr + 0x54
-        addr_hook3 = base_addr + 0x6C
-        return raw_bytes, addr_hook1, addr_hook2, addr_hook3
+        b_species = self.asm.assemble_thumb(code_species, addr_species)
+
+        total_bytes = (
+            b_tid
+            + (b"\x00" * pad1)
+            + b_init
+            + (b"\x00" * pad2)
+            + b_choice
+            + (b"\x00" * pad3)
+            + b_species
+        )
+        return total_bytes, addr_init, addr_choice, addr_species
 
     def apply(self, rom_handler: RomHandler) -> bool:
         cfg = self.CONFIG.get(rom_handler.game_code)
