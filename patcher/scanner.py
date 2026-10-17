@@ -304,12 +304,42 @@ class UniversalResolver:
         fn_party_get_pokemon_by_slot = PatternScanner.decode_thumb_bl(arm9[item_match+8:item_match+12], arm9_ram + item_match + 8)
         fn_pokemon_check_item_effects = PatternScanner.decode_thumb_bl(arm9[item_off:item_off+4], item_addr)
 
+        # Blackout / Game Over: entry of Field_PlayerLostBattle / blackout penalty
+        blackout_off = PatternScanner.find_pattern(arm9, "38 b5 04 1c 08 68 04 23 ?? 69 03 42")
+        if blackout_off is None:
+            raise RuntimeError("Could not find Blackout signature in ARM9")
+        hook_blackout_addr = arm9_ram + blackout_off
+
+        # SaveData_Erase in ARM9
+        erase_off = PatternScanner.find_pattern(arm9, "f8 b5 01 21 00 90 03 20 09 03")
+        if erase_off is None:
+            raise RuntimeError("Could not find SaveData_Erase signature in ARM9")
+        fn_save_data_erase = (arm9_ram + erase_off) | 1
+
+        # SoftReset in ARM9
+        reset_off = PatternScanner.find_pattern(arm9, "10 b5 ?? 49 04 1c 00 20 ?? f0 ?? ?? ?? 49 01 20")
+        if reset_off is None:
+            raise RuntimeError("Could not find SoftReset signature in ARM9")
+        fn_soft_reset = (arm9_ram + reset_off) | 1
+
+        # sSaveDataPtr in ARM9
+        save_ptr_off = PatternScanner.find_pattern(arm9, "08 b5 04 48 00 68 00 28 ?? d1 ?? ?? ?? ?? 01 48 00 68 08 bd")
+        if save_ptr_off is not None:
+            save_data_ptr = struct.unpack("<I", arm9[save_ptr_off + 20 : save_ptr_off + 24])[0]
+        else:
+            save_data_ptr = 0x021C08F4
+
         return {
             "arm9_free_space_addr": 0x020F9408,
             "party_heal_hook_addr": heal_addr,
             "party_heal_expected": bytes(arm9[heal_off : heal_off + 8]),
             "item_check_hook_addr": item_addr,
             "item_check_expected": bytes(arm9[item_off : item_off + 4]),
+            "hook_blackout_addr": hook_blackout_addr,
+            "hook_blackout_expected": bytes(arm9[blackout_off : blackout_off + 4]),
+            "fn_save_data_erase": fn_save_data_erase,
+            "fn_soft_reset": fn_soft_reset,
+            "save_data_ptr": save_data_ptr,
             "fn_party_get_current_count": fn_party_get_current_count,
             "fn_party_get_pokemon_by_slot": fn_party_get_pokemon_by_slot,
             "fn_pokemon_get_value": 0x02074510,

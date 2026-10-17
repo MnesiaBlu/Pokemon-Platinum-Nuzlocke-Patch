@@ -63,8 +63,13 @@ Enforces permanent faint / death mechanics across all recovery pathways:
   - Using *Rare Candies* on Pokémon with 0 HP is intercepted and blocked in `Party_CheckItemEffectsOnMember`.
 - **Faint Preservation at Healing Facilities**:
   - The universal party healing function (`Party_HealAllMembers`), invoked by Nurse Joy, mothers, beds, and overworld doctors, detects party members with 0 HP and skips healing them.
-  - Fainted Pokémon remain at 0 HP, with fainted status and unmodified PP, requiring the player to deposit them into a graveyard PC box or release them.
-  - In the event of a total party blackout, the player respawns at the Pokémon Center with their fallen team still fainted, ready to deposit them in the PC.
+  - Fainted Pokémon remain at 0 HP, with fainted status and unmodified PP.
+- **Hardcore Game Over on Blackout (Ironman Mode)**:
+  - If all Pokémon in the party faint (a total party blackout/whiteout):
+    - The blackout handler (`Field_PlayerLostBattle`) is intercepted by `Custom_BlackoutGameOver`.
+    - The engine invokes `SaveData_Erase` to completely wipe all 64 sectors of Flash memory (both primary and backup save blocks).
+    - The console executes a clean hardware soft reset (`SoftReset`) directly back to the Title Screen.
+    - Because the save file has been wiped, the run is permanently over: the Title Screen displays no "Continue" option, only "New Game".
 
 ### 4. Starter by Trainer ID (`feature/starter-by-tid`)
 Determines the player's mandatory starter Pokémon based on the final digit of their Trainer ID (TID) on the Trainer Card:
@@ -106,8 +111,8 @@ To apply the patches to your clean Pokémon Platinum ROM:
           Pokemon cannot exceed the level of the upcoming Gym Leader/Champion's ace
      [X] 2. First Encounter Only
           Exactly one catch chance per route; fleeing or defeating it permanently burns the route
-     [X] 3. Complete Permadeath
-          Fainted Pokemon cannot be revived by items or healed at Pokemon Centers
+     [X] 3. Permadeath & Hardcore Game Over
+          Fainted Pokemon cannot be revived; blacking out erases save file (Game Over)
      [X] 4. Starter by Trainer ID
           Starter determined by Trainer ID last digit (1-3 Grass, 4-6 Fire, 7-9 Water, 0 Player Choice)
 
