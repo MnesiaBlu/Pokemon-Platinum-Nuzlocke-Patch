@@ -32,7 +32,7 @@ FEATURE_DETAILS = {
     },
     "first-encounter": {
         "title": "First Encounter Only",
-        "desc": "Blocks catching wild Pokemon on routes/areas where a Pokemon was already caught",
+        "desc": "Exactly one catch chance per route; fleeing or defeating it permanently burns the route",
     },
     "permadeath": {
         "title": "Complete Permadeath",

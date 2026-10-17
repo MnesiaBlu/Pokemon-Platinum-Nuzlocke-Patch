@@ -230,23 +230,50 @@ class UniversalResolver:
         ov16_ram = ov16.ramAddress
         ov16_data = bytes(ov16.data)
 
-        # Hook: ThrowBallTask before Battle_CalcCatchShakes
-        h_match = PatternScanner.find_pattern(ov16_data, "20 68 61 68 ?? ?? ?? ?? a0 63 04 28")
-        if h_match is None:
-            raise RuntimeError("Could not find ThrowBallTask catch formula signature in Overlay 16")
-        h_off = h_match + 4
-        h_addr = ov16_ram + h_off
-        fn_battle_calc_shakes = (PatternScanner.decode_thumb_bl(ov16_data[h_off:h_off+4], h_addr)) | 1
+        # Hook 1: BattleSys_New call during battle initialization in Overlay 16
+        h1_match = PatternScanner.find_pattern(ov16_data, "20 1c 29 1c ?? ?? ?? ?? e0 6a 04 21 01 42")
+        if h1_match is None:
+            raise RuntimeError("Could not find BattleSys_New initialization signature in Overlay 16")
+        h1_off = h1_match + 4
+        h1_addr = ov16_ram + h1_off
+        fn_battle_sys_new = (PatternScanner.decode_thumb_bl(ov16_data[h1_off : h1_off + 4], h1_addr)) | 1
 
-        # Battle_GetMapHeader in Overlay 16: ldr r1, [pc, #4]; ldr r0, [r0, r1]; bx lr; mov r8, r8; .word 0x0000240C
-        map_header_off = PatternScanner.find_pattern(ov16_data, "01 49 40 58 70 47 c0 46 0c 24 00 00")
-        fn_battle_get_map_header = (ov16_ram + map_header_off) | 1 if map_header_off else 0x0223ED4D
+        # Hook 2: ThrowBallTask before Battle_CalcCatchShakes in Overlay 16
+        h2_match = PatternScanner.find_pattern(ov16_data, "20 68 61 68 ?? ?? ?? ?? a0 63 04 28")
+        if h2_match is None:
+            raise RuntimeError("Could not find ThrowBallTask catch formula signature in Overlay 16")
+        h2_off = h2_match + 4
+        h2_addr = ov16_ram + h2_off
+        fn_battle_calc_shakes = (PatternScanner.decode_thumb_bl(ov16_data[h2_off : h2_off + 4], h2_addr)) | 1
+
+        # SaveData_GetTrainerInfo and sSaveDataPtr in ARM9
+        arm9 = bytes(rom_handler.rom.arm9)
+        arm9_ram = rom_handler.rom.arm9RamAddress
+
+        trainer_info_off = PatternScanner.find_pattern(arm9, "08 b5 01 21 ?? ?? ?? ?? 00 1d 08 bd")
+        if trainer_info_off is not None:
+            fn_save_data_save_table = (
+                PatternScanner.decode_thumb_bl(arm9[trainer_info_off + 4 : trainer_info_off + 8], arm9_ram + trainer_info_off + 4)
+                | 1
+            )
+        else:
+            fn_save_data_save_table = 0x0202462D
+
+        save_ptr_off = PatternScanner.find_pattern(arm9, "08 b5 04 48 00 68 00 28 ?? d1 ?? ?? ?? ?? 01 48 00 68 08 bd")
+        if save_ptr_off is not None:
+            save_data_ptr = struct.unpack("<I", arm9[save_ptr_off + 20 : save_ptr_off + 24])[0]
+        else:
+            save_data_ptr = 0x021C08F4
 
         return {
             "overlay_id": 16,
-            "hook_addr": h_addr,
-            "hook_expected": bytes(ov16_data[h_off : h_off + 4]),
-            "fn_battle_get_map_header": fn_battle_get_map_header,
+            "hook_init_addr": h1_addr,
+            "hook_init_expected": bytes(ov16_data[h1_off : h1_off + 4]),
+            "fn_battle_sys_new": fn_battle_sys_new,
+            "save_data_ptr": save_data_ptr,
+            "fn_save_data_save_table": fn_save_data_save_table,
+            "hook_addr": h2_addr,
+            "hook_expected": bytes(ov16_data[h2_off : h2_off + 4]),
             "fn_pokemon_get_value": 0x02074511,
             "fn_box_pokemon_get_value": 0x02074611,
             "fn_battle_calc_shakes": fn_battle_calc_shakes,
