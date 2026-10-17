@@ -3,7 +3,8 @@
 A modular Python toolkit to generate a patched ROM of **Pokémon Platinum Version** (universal support: Italian `CPUI`, US/English `CPUE`, French `CPUF`, German `CPUD`, Spanish `CPUS`) with standard Nuzlocke challenge rules enforced directly at the game engine level.
 
 > [!NOTE]
-> This repository strictly contains the source code for the **patcher** tool and ARM/Thumb assembly hooks. No copyrighted ROM files or Nintendo assets are distributed or tracked within this Git repository.
+> - **AI-Assisted Development**: This project, including its reverse-engineering analysis, ARM/Thumb assembly patches, Python patching scripts, and documentation, was developed with the assistance of Artificial Intelligence (AI).
+> - **Legal Notice**: This repository strictly contains the source code for the **patcher** tool and ARM/Thumb assembly hooks. No copyrighted ROM files or Nintendo assets are distributed or tracked within this Git repository.
 
 ---
 
@@ -142,3 +143,11 @@ To verify patch integrity and ROM modifications:
 ```bash
 python -m unittest discover tests
 ```
+
+---
+
+## Disclaimer
+
+- **AI-Assisted Project**: This project was designed and developed with the assistance of Artificial Intelligence (AI) for reverse-engineering research, assembly patch engineering, test suite implementation, and documentation.
+- **Trademarks & Copyrights**: Pokémon and Nintendo DS are registered trademarks and copyrights of Nintendo, Creatures Inc., and GAME FREAK inc. This repository is an unofficial, non-commercial fan-made project created solely for research and personal entertainment purposes.
+
