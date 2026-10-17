@@ -76,6 +76,16 @@ class TestUniversalResolver(unittest.TestCase):
         self.assertEqual(cfg["fn_save_data_save_table"], 0x0202462D)
         self.assertEqual(cfg["hook_addr"], 0x02249EAA)
         self.assertEqual(cfg["fn_battle_calc_shakes"], 0x0224A8A1)
+        self.assertEqual(cfg["ov5_id"], 5)
+        self.assertEqual(cfg["ov5_hooks"], [0x021DDAE0, 0x021DDBD0])
+        self.assertEqual(cfg["ov80_id"], 80)
+        self.assertEqual(cfg["ov80_hooks"], [0x021D1BC8, 0x021D1BEA, 0x021D1C00])
+        self.assertEqual(cfg["fn_msg_loader_get_string"], 0x0200B1CD)
+        self.assertEqual(cfg["fn_font_calc_string_width"], 0x02002D91)
+        self.assertEqual(cfg["fn_map_header_get_map_name_string"], 0x02071DA5)
+        self.assertEqual(cfg["fn_map_header_get_label_text_id"], 0x0203A1DD)
+        self.assertEqual(cfg["fn_save_data_get_pc_storage"], 0x02024491)
+        self.assertEqual(cfg["fn_pc_storage_get_box_pokemon"], 0x02079D3D)
 
     def test_resolve_permadeath(self):
         handler = RomHandler(self.rom_path)

@@ -33,6 +33,19 @@ class FirstEncounterPatch(BasePatch):
             "fn_pokemon_get_value": 0x02074511,      # Thumb address
             "fn_box_pokemon_get_value": 0x02074611,  # Thumb address
             "fn_battle_calc_shakes": 0x0224A8A1,     # Thumb address
+            # Overlay 5 (Overworld Location Banner):
+            "ov5_id": 5,
+            "ov5_hooks": [0x021DDAE0, 0x021DDBD0],
+            "fn_msg_loader_get_string": 0x0200B1CD,
+            "fn_font_calc_string_width": 0x02002D91,
+            # Overlay 80 (Town Map / Mappa Citta):
+            "ov80_id": 80,
+            "ov80_hooks": [0x021D1BC8, 0x021D1BEA, 0x021D1C00],
+            "fn_map_header_get_map_name_string": 0x02071DA5,
+            "fn_map_header_get_label_text_id": 0x0203A1DD,
+            # Storage
+            "fn_save_data_get_pc_storage": 0x02024491,
+            "fn_pc_storage_get_box_pokemon": 0x02079D3D,
         }
     }
 
@@ -236,16 +249,441 @@ Custom_CalcCatchShakes:
         total_bytes = b1 + (b"\x00" * pad) + b2
         return total_bytes, base_addr, calc_shakes_addr
 
+    def generate_map_banner_code(self, cfg: dict, base_addr: int) -> bytes:
+        """Generate Custom_MapHeader_LoadString for Overlay 5 (Overworld Location Banner).
+
+        Appends ' (O)' if encounter is available, ' (X)' if consumed or already owned.
+        """
+        code = f"""
+.thumb
+.align 2
+Custom_MapHeader_LoadString:
+    push {{r4, r5, r6, r7, lr}}
+    sub sp, #16
+
+    adds r4, r0, #0        @ r4 = msgLoader
+    adds r5, r1, #0        @ r5 = entryID (mapLabelTextID)
+    adds r6, r2, #0        @ r6 = string
+
+    @ 1. Call MessageLoader_GetString(msgLoader, entryID, string)
+    ldr r3, ={hex(cfg['fn_msg_loader_get_string'])}
+    blx r3
+
+    @ 2. Poke Ball Clause: Check if player has Pokedex (flag 146)
+    ldr r0, ={hex(cfg['save_data_ptr'])}
+    ldr r0, [r0]           @ r0 = saveData
+    cmp r0, #0
+    beq .calc_width
+    str r0, [sp, #8]       @ save saveData on stack
+
+    movs r1, #4            @ SAVE_TABLE_ENTRY_VARS_FLAGS
+    ldr r3, ={hex(cfg['fn_save_data_save_table'])}
+    blx r3
+    cmp r0, #0
+    beq .calc_width
+    adds r7, r0, #0        @ r7 = varsFlags
+
+    @ Check flag 146: byte = flags[18], bit = (1 << 2) = 4
+    ldr r1, =0x248
+    adds r0, r7, r1
+    ldrb r1, [r0, #18]
+    movs r2, #4
+    tst r1, r2
+    beq .calc_width        @ No Pokedex -> don't show any indicator!
+
+    @ 3. Check entryID range (0..149)
+    cmp r5, #0
+    beq .calc_width
+    cmp r5, #150
+    bge .calc_width
+
+    @ 4. Check if flag (2562 + entryID) is set in varsFlags
+    ldr r0, =2562
+    adds r1, r0, r5        @ r1 = flagID
+    lsrs r2, r1, #3        @ r2 = byte index
+    movs r3, #7
+    ands r1, r3            @ r1 = bit index
+    movs r3, #1
+    lsls r3, r1            @ r3 = bitmask
+
+    ldr r0, =0x248
+    adds r0, r7, r0
+    adds r0, r0, r2
+    ldrb r1, [r0, #0]
+    tst r1, r3
+    bne .append_x          @ Route encounter already consumed!
+
+    @ 5. Check Party for a mon with MON_DATA_MET_LOCATION == entryID
+    ldr r0, [sp, #8]       @ r0 = saveData
+    movs r1, #2            @ SAVE_TABLE_ENTRY_PARTY
+    ldr r3, ={hex(cfg['fn_save_data_save_table'])}
+    blx r3
+    cmp r0, #0
+    beq .check_pc
+    ldr r1, [r0, #4]       @ party count
+    cmp r1, #6
+    ble .party_cnt_ok
+    movs r1, #6
+.party_cnt_ok:
+    cmp r1, #0
+    ble .check_pc
+    str r1, [sp, #12]      @ party count loop counter
+    adds r7, r0, #8        @ party Pokemon array start
+
+.party_loop:
+    adds r0, r7, #0
+    movs r1, #5            @ MON_DATA_SPECIES
+    movs r2, #0
+    ldr r3, ={hex(cfg['fn_pokemon_get_value'])}
+    blx r3
+    cmp r0, #0
+    beq .party_next
+
+    adds r0, r7, #0
+    movs r1, #153          @ MON_DATA_MET_LOCATION
+    movs r2, #0
+    ldr r3, ={hex(cfg['fn_pokemon_get_value'])}
+    blx r3
+    cmp r0, r5
+    beq .append_x          @ Already owned!
+
+.party_next:
+    movs r0, #236          @ sizeof(Pokemon)
+    adds r7, r7, r0
+    ldr r1, [sp, #12]
+    subs r1, r1, #1
+    str r1, [sp, #12]
+    bgt .party_loop
+
+.check_pc:
+    @ 6. Check PC Boxes
+    ldr r0, [sp, #8]       @ r0 = saveData
+    ldr r3, ={hex(cfg['fn_save_data_get_pc_storage'])}
+    blx r3
+    cmp r0, #0
+    beq .append_o
+    str r0, [sp, #0]       @ pcStorage
+
+    movs r7, #0            @ box = 0
+.pc_box_loop:
+    movs r4, #0            @ slot = 0
+.pc_slot_loop:
+    ldr r0, [sp, #0]       @ pcStorage
+    adds r1, r7, #0        @ box
+    adds r2, r4, #0        @ slot
+    ldr r3, ={hex(cfg['fn_pc_storage_get_box_pokemon'])}
+    blx r3
+    cmp r0, #0
+    beq .pc_slot_next
+
+    str r0, [sp, #4]       @ boxMon
+    movs r1, #5            @ MON_DATA_SPECIES
+    movs r2, #0
+    ldr r3, ={hex(cfg['fn_box_pokemon_get_value'])}
+    blx r3
+    cmp r0, #0
+    beq .pc_slot_next
+
+    ldr r0, [sp, #4]
+    movs r1, #153          @ MON_DATA_MET_LOCATION
+    movs r2, #0
+    ldr r3, ={hex(cfg['fn_box_pokemon_get_value'])}
+    blx r3
+    cmp r0, r5
+    beq .append_x
+
+.pc_slot_next:
+    adds r4, r4, #1
+    cmp r4, #30
+    blt .pc_slot_loop
+    adds r7, r7, #1
+    cmp r7, #18
+    blt .pc_box_loop
+
+.append_o:
+    movs r0, #0x39         @ 'O' charcode = 0x0139
+    b .append_suffix
+
+.append_x:
+    movs r0, #0x42         @ 'X' charcode = 0x0142
+
+.append_suffix:
+    @ Check if string has room for 4 chars: (string->size + 4 <= string->maxsize)
+    ldrh r1, [r6, #2]      @ string->size
+    ldrh r2, [r6, #0]      @ string->maxsize
+    adds r3, r1, #4
+    cmp r3, r2
+    bgt .calc_width
+
+    @ data pointer = string + 8 + (size * 2)
+    lsls r2, r1, #1
+    adds r2, r6, r2
+    adds r2, #8
+
+    @ Write ' ' (0x01DE)
+    ldr r3, =0x01DE
+    strh r3, [r2, #0]
+
+    @ Write '(' (0x01B9)
+    ldr r3, =0x01B9
+    strh r3, [r2, #2]
+
+    @ Write marker (0x0100 + r0)
+    movs r3, #1
+    lsls r3, r3, #8
+    orrs r3, r0
+    strh r3, [r2, #4]
+
+    @ Write ')' (0x01BA)
+    ldr r3, =0x01BA
+    strh r3, [r2, #6]
+
+    @ Write terminator 0xFFFF
+    movs r3, #0
+    mvns r3, r3
+    strh r3, [r2, #8]
+
+    @ Update string->size += 4
+    ldrh r1, [r6, #2]
+    adds r1, #4
+    strh r1, [r6, #2]
+
+.calc_width:
+    movs r0, #0            @ fontID = 0
+    adds r1, r6, #0        @ string
+    movs r2, #2            @ letterSpacing = 2
+    ldr r3, ={hex(cfg['fn_font_calc_string_width'])}
+    blx r3
+
+    add sp, #16
+    pop {{r4, r5, r6, r7, pc}}
+"""
+        return self.asm.assemble_thumb(code, base_addr)
+
+    def generate_town_map_code(self, cfg: dict, base_addr: int) -> bytes:
+        """Generate Custom_MapHeader_GetMapNameString for Overlay 80 (Town Map).
+
+        Appends ' (O)' if encounter is available, ' (X)' if consumed or already owned.
+        """
+        code = f"""
+.thumb
+.align 2
+Custom_MapHeader_GetMapNameString:
+    push {{r4, r5, r6, r7, lr}}
+    sub sp, #16
+
+    adds r4, r0, #0        @ r4 = mapID
+    adds r5, r1, #0        @ r5 = heapID
+    adds r6, r2, #0        @ r6 = string
+
+    @ 1. Call original MapHeader_GetMapNameString(mapID, heapID, string)
+    ldr r3, ={hex(cfg['fn_map_header_get_map_name_string'])}
+    blx r3
+
+    @ 2. Get labelTextID from mapID
+    adds r0, r4, #0
+    ldr r3, ={hex(cfg['fn_map_header_get_label_text_id'])}
+    blx r3
+    adds r5, r0, #0        @ r5 = entryID (labelTextID)
+
+    @ 3. Poke Ball Clause: Check if player has Pokedex (flag 146)
+    ldr r0, ={hex(cfg['save_data_ptr'])}
+    ldr r0, [r0]           @ r0 = saveData
+    cmp r0, #0
+    beq .done
+    str r0, [sp, #8]       @ save saveData on stack
+
+    movs r1, #4            @ SAVE_TABLE_ENTRY_VARS_FLAGS
+    ldr r3, ={hex(cfg['fn_save_data_save_table'])}
+    blx r3
+    cmp r0, #0
+    beq .done
+    adds r7, r0, #0        @ r7 = varsFlags
+
+    @ Check flag 146: byte = flags[18], bit = (1 << 2) = 4
+    ldr r1, =0x248
+    adds r0, r7, r1
+    ldrb r1, [r0, #18]
+    movs r2, #4
+    tst r1, r2
+    beq .done              @ No Pokedex -> don't show any indicator!
+
+    @ 4. Check entryID range (0..149)
+    cmp r5, #0
+    beq .done
+    cmp r5, #150
+    bge .done
+
+    @ 5. Check if flag (2562 + entryID) is set in varsFlags
+    ldr r0, =2562
+    adds r1, r0, r5        @ r1 = flagID
+    lsrs r2, r1, #3        @ r2 = byte index
+    movs r3, #7
+    ands r1, r3            @ r1 = bit index
+    movs r3, #1
+    lsls r3, r1            @ r3 = bitmask
+
+    ldr r0, =0x248
+    adds r0, r7, r0
+    adds r0, r0, r2
+    ldrb r1, [r0, #0]
+    tst r1, r3
+    bne .append_x          @ Route encounter already consumed!
+
+    @ 6. Check Party for a mon with MON_DATA_MET_LOCATION == entryID
+    ldr r0, [sp, #8]       @ r0 = saveData
+    movs r1, #2            @ SAVE_TABLE_ENTRY_PARTY
+    ldr r3, ={hex(cfg['fn_save_data_save_table'])}
+    blx r3
+    cmp r0, #0
+    beq .check_pc
+    ldr r1, [r0, #4]       @ party count
+    cmp r1, #6
+    ble .party_cnt_ok
+    movs r1, #6
+.party_cnt_ok:
+    cmp r1, #0
+    ble .check_pc
+    str r1, [sp, #12]      @ party count loop counter
+    adds r7, r0, #8        @ party Pokemon array start
+
+.party_loop:
+    adds r0, r7, #0
+    movs r1, #5            @ MON_DATA_SPECIES
+    movs r2, #0
+    ldr r3, ={hex(cfg['fn_pokemon_get_value'])}
+    blx r3
+    cmp r0, #0
+    beq .party_next
+
+    adds r0, r7, #0
+    movs r1, #153          @ MON_DATA_MET_LOCATION
+    movs r2, #0
+    ldr r3, ={hex(cfg['fn_pokemon_get_value'])}
+    blx r3
+    cmp r0, r5
+    beq .append_x          @ Already owned!
+
+.party_next:
+    movs r0, #236          @ sizeof(Pokemon)
+    adds r7, r7, r0
+    ldr r1, [sp, #12]
+    subs r1, r1, #1
+    str r1, [sp, #12]
+    bgt .party_loop
+
+.check_pc:
+    @ 7. Check PC Boxes
+    ldr r0, [sp, #8]       @ r0 = saveData
+    ldr r3, ={hex(cfg['fn_save_data_get_pc_storage'])}
+    blx r3
+    cmp r0, #0
+    beq .append_o
+    str r0, [sp, #0]       @ pcStorage
+
+    movs r7, #0            @ box = 0
+.pc_box_loop:
+    movs r4, #0            @ slot = 0
+.pc_slot_loop:
+    ldr r0, [sp, #0]       @ pcStorage
+    adds r1, r7, #0        @ box
+    adds r2, r4, #0        @ slot
+    ldr r3, ={hex(cfg['fn_pc_storage_get_box_pokemon'])}
+    blx r3
+    cmp r0, #0
+    beq .pc_slot_next
+
+    str r0, [sp, #4]       @ boxMon
+    movs r1, #5            @ MON_DATA_SPECIES
+    movs r2, #0
+    ldr r3, ={hex(cfg['fn_box_pokemon_get_value'])}
+    blx r3
+    cmp r0, #0
+    beq .pc_slot_next
+
+    ldr r0, [sp, #4]
+    movs r1, #153          @ MON_DATA_MET_LOCATION
+    movs r2, #0
+    ldr r3, ={hex(cfg['fn_box_pokemon_get_value'])}
+    blx r3
+    cmp r0, r5
+    beq .append_x
+
+.pc_slot_next:
+    adds r4, r4, #1
+    cmp r4, #30
+    blt .pc_slot_loop
+    adds r7, r7, #1
+    cmp r7, #18
+    blt .pc_box_loop
+
+.append_o:
+    movs r0, #0x39         @ 'O' charcode = 0x0139
+    b .append_suffix
+
+.append_x:
+    movs r0, #0x42         @ 'X' charcode = 0x0142
+
+.append_suffix:
+    @ Check if string has room for 4 chars: (string->size + 4 <= string->maxsize)
+    ldrh r1, [r6, #2]      @ string->size
+    ldrh r2, [r6, #0]      @ string->maxsize
+    adds r3, r1, #4
+    cmp r3, r2
+    bgt .done
+
+    @ data pointer = string + 8 + (size * 2)
+    lsls r2, r1, #1
+    adds r2, r6, r2
+    adds r2, #8
+
+    @ Write ' ' (0x01DE)
+    ldr r3, =0x01DE
+    strh r3, [r2, #0]
+
+    @ Write '(' (0x01B9)
+    ldr r3, =0x01B9
+    strh r3, [r2, #2]
+
+    @ Write marker (0x0100 + r0)
+    movs r3, #1
+    lsls r3, r3, #8
+    orrs r3, r0
+    strh r3, [r2, #4]
+
+    @ Write ')' (0x01BA)
+    ldr r3, =0x01BA
+    strh r3, [r2, #6]
+
+    @ Write terminator 0xFFFF
+    movs r3, #0
+    mvns r3, r3
+    strh r3, [r2, #8]
+
+    @ Update string->size += 4
+    ldrh r1, [r6, #2]
+    adds r1, #4
+    strh r1, [r6, #2]
+
+.done:
+    add sp, #16
+    pop {{r4, r5, r6, r7, pc}}
+"""
+        return self.asm.assemble_thumb(code, base_addr)
+
     def apply(self, rom_handler: RomHandler) -> bool:
         cfg = self.CONFIG.get(rom_handler.game_code)
         if not cfg:
             cfg = UniversalResolver.resolve_first_encounter(rom_handler)
 
+        # ---------------------------------------------------------------------
+        # 1. Overlay 16: Battle System (Catch restriction & route consumption)
+        # ---------------------------------------------------------------------
         ov16 = rom_handler.load_arm9_overlay(cfg["overlay_id"])
         ov16_ram = ov16.ramAddress
         orig_size = len(ov16.data)
 
-        # 1. Verify original instructions at both hook locations
+        # Verify original instructions at both hook locations
         h1_off = cfg["hook_init_addr"] - ov16_ram
         h1_curr = bytes(ov16.data[h1_off : h1_off + len(cfg["hook_init_expected"])])
         if h1_curr != cfg["hook_init_expected"]:
@@ -262,33 +700,74 @@ Custom_CalcCatchShakes:
                 f"Expected {cfg['hook_expected'].hex()}, got {h2_curr.hex()}"
             )
 
-        # 2. Append custom code at the end of Overlay 16
+        # Append custom code at the end of Overlay 16
         custom_base_addr = ov16_ram + orig_size
         code_bytes, fn_init, fn_shakes = self.generate_custom_code(cfg, custom_base_addr)
 
-        # Pad custom code to 512 bytes for alignment
         padding = (512 - (len(code_bytes) % 512)) % 512
         new_data = bytes(ov16.data) + code_bytes + (b"\x00" * padding)
         new_size = len(new_data)
 
-        # 3. Assemble hooks
-        # Hook 1: bl Custom_BattleInit
         hook1_code = f"bl #{hex(fn_init)}"
         hook1_bytes = self.asm.assemble_thumb(hook1_code, cfg["hook_init_addr"])
         assert len(hook1_bytes) == len(cfg["hook_init_expected"])
 
-        # Hook 2: bl Custom_CalcCatchShakes
         hook2_code = f"bl #{hex(fn_shakes)}"
         hook2_bytes = self.asm.assemble_thumb(hook2_code, cfg["hook_addr"])
         assert len(hook2_bytes) == len(cfg["hook_expected"])
 
-        # 4. Patch hooks into overlay data
         patched_data = bytearray(new_data)
         patched_data[h1_off : h1_off + len(hook1_bytes)] = hook1_bytes
         patched_data[h2_off : h2_off + len(hook2_bytes)] = hook2_bytes
 
-        # 5. Save updated overlay to ROM
         rom_handler.update_arm9_overlay(
             cfg["overlay_id"], ov16, patched_data, new_ram_size=new_size
         )
+
+        # ---------------------------------------------------------------------
+        # 2. Overlay 5: Overworld Location Banner Indicator
+        # ---------------------------------------------------------------------
+        if "ov5_id" in cfg and "ov5_hooks" in cfg:
+            ov5 = rom_handler.load_arm9_overlay(cfg["ov5_id"])
+            ov5_ram = ov5.ramAddress
+            orig_size_5 = len(ov5.data)
+
+            custom_base_5 = ov5_ram + orig_size_5
+            code_bytes_5 = self.generate_map_banner_code(cfg, custom_base_5)
+            pad_5 = (512 - (len(code_bytes_5) % 512)) % 512
+            new_data_5 = bytearray(bytes(ov5.data) + code_bytes_5 + (b"\x00" * pad_5))
+
+            for hook_addr in cfg["ov5_hooks"]:
+                hook_code = f"bl #{hex(custom_base_5)}"
+                hook_bytes = self.asm.assemble_thumb(hook_code, hook_addr)
+                off = hook_addr - ov5_ram
+                new_data_5[off : off + 4] = hook_bytes
+
+            rom_handler.update_arm9_overlay(
+                cfg["ov5_id"], ov5, bytes(new_data_5), new_ram_size=len(new_data_5)
+            )
+
+        # ---------------------------------------------------------------------
+        # 3. Overlay 80: Town Map (Mappa Citta) Catch Indicator
+        # ---------------------------------------------------------------------
+        if "ov80_id" in cfg and "ov80_hooks" in cfg:
+            ov80 = rom_handler.load_arm9_overlay(cfg["ov80_id"])
+            ov80_ram = ov80.ramAddress
+            orig_size_80 = len(ov80.data)
+
+            custom_base_80 = ov80_ram + orig_size_80
+            code_bytes_80 = self.generate_town_map_code(cfg, custom_base_80)
+            pad_80 = (512 - (len(code_bytes_80) % 512)) % 512
+            new_data_80 = bytearray(bytes(ov80.data) + code_bytes_80 + (b"\x00" * pad_80))
+
+            for hook_addr in cfg["ov80_hooks"]:
+                hook_code = f"bl #{hex(custom_base_80)}"
+                hook_bytes = self.asm.assemble_thumb(hook_code, hook_addr)
+                off = hook_addr - ov80_ram
+                new_data_80[off : off + 4] = hook_bytes
+
+            rom_handler.update_arm9_overlay(
+                cfg["ov80_id"], ov80, bytes(new_data_80), new_ram_size=len(new_data_80)
+            )
+
         return True
