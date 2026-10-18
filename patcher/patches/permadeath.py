@@ -42,8 +42,8 @@ class PermadeathPatch(BasePatch):
             "item_check_hook_addr": 0x020969EE,
             "item_check_expected": bytes.fromhex("fff767fd"),
             "item_check_free_space_addr": 0x020F3454,
-            "hook_blackout_addr": 0x02051954,
-            "hook_blackout_expected": bytes.fromhex("38b5041c"),
+            "hook_blackout_addr": 0x02051958,
+            "hook_blackout_expected": bytes.fromhex("08680423"),
             "blackout_free_space_addr": 0x020F32EC,
             "fn_save_data_erase": 0x02024659,
             "fn_soft_reset": 0x02000F75,
@@ -57,11 +57,8 @@ class PermadeathPatch(BasePatch):
             "fn_pokemon_check_item_effects": 0x020964C0,
             "revive_item_ids": [28, 29, 37, 44],  # Revive, Max Revive, Revival Herb, Sacred Ash
             "rare_candy_id": 50,
-            "battle_end_hooks": [0x020518E0, 0x02051946],
-            "battle_end_expected": [bytes.fromhex("fff762f8"), bytes.fromhex("fff72ff8")],
             "battle_end_part1_addr": 0x020F3184,
             "battle_end_part2_addr": 0x020F3238,
-            "fn_field_battle_transition_end": 0x020509A9,
             "fn_party_remove_pokemon_by_slot": 0x0207A121,
             "fn_save_data_save_table": 0x0202462D,
             "fn_save_data_get_pc_storage": 0x02024491,
@@ -153,27 +150,40 @@ Party_CheckItemEffects_Nuzlocke:
         return self.asm.assemble_thumb(asm_code, base_addr)
 
     def generate_blackout_code(self, cfg: dict, base_addr: int) -> bytes:
-        """Generate Custom_BlackoutGameOver routine.
+        """Generate Custom_ProcessBattleResult routine (52 bytes).
 
-        When the player blacks out (all party Pokémon fainted):
-        1. Calls SaveData_Erase(saveData) to completely wipe all primary and backup save sectors.
-        2. Calls SoftReset(0) to reset the console directly to the title screen.
+        Called from Field_ProcessBattleResult at 0x02051958.
+        If outcome is BATTLE_OUTCOME_LOSE (2), wipes save and soft-resets (Game Over).
+        Otherwise, calls Custom_BattleEnd_Part1 to transfer any fainted Pokemon
+        to Box 18 ('CIMITERO'), restores replaced instructions, and resumes.
         """
         asm_code = f"""
 .thumb
 .align 2
-Custom_BlackoutGameOver:
-    push {{r4, lr}}
+Custom_ProcessBattleResult:
+    push {{r4, r5, lr}}
+    adds r4, r1, #0        @ r4 = battleSetup
 
-    @ 1. Get SaveData pointer
+    @ 1. Check battle outcome: [battleSetup, #0x14]
+    ldr r2, [r4, #0x14]
+    cmp r2, #2             @ 2 = BATTLE_OUTCOME_LOSE (Blackout / wipeout)
+    beq .do_game_over
+
+    @ 2. Player did not wipe out: transfer fainted party Pokemon to Box 18
+    bl #{hex(cfg['battle_end_part1_addr'])}
+
+    @ 3. Restore replaced instructions
+    adds r1, r4, #0        @ r1 = battleSetup
+    ldr r0, [r1]           @ replaced: ldr r0, [r1]
+    movs r3, #4            @ replaced: movs r3, #4
+    pop {{r4, r5, pc}}     @ return to 0x0205195C
+
+.do_game_over:
+    @ Hardcore Game Over: Wipe primary + backup save sectors and reset
     ldr r0, ={hex(cfg['save_data_ptr'])}
     ldr r0, [r0]
-
-    @ 2. Call SaveData_Erase(saveData)
     ldr r2, ={hex(cfg['fn_save_data_erase'] | 1)}
     blx r2
-
-    @ 3. Call SoftReset(0)
     movs r0, #0
     ldr r2, ={hex(cfg['fn_soft_reset'] | 1)}
     blx r2
@@ -253,8 +263,8 @@ Custom_GetBoxPokemon_OrGraveyardBlock:
     def generate_battle_end_code(self, cfg: dict) -> tuple[bytes, bytes]:
         """Generate Custom_BattleEnd Part 1 and Part 2 routines.
 
-        Part 1 (0x020F3184): Saves registers, fetches SaveData, party, and PC storage,
-        calls Part 2, then resumes Field_BattleTransitionEnd.
+        Part 1 (0x020F3184): Fetches SaveData, party, and PC storage,
+        then calls Part 2.
         Part 2 (0x020F3238): Iterates party backwards; any Pokemon with curHP == 0
         is copied into the first available slot in Box 18 ('CIMITERO') and removed
         from the active party.
@@ -264,62 +274,55 @@ Custom_GetBoxPokemon_OrGraveyardBlock:
 .align 2
 Custom_BattleEnd_Part1:
     push {{r4, r5, r6, r7, lr}}
-    sub sp, #20
-    str r0, [sp, #8]
-    str r1, [sp, #12]
-    str r2, [sp, #16]
 
     ldr r0, ={hex(cfg['save_data_ptr'])}
     ldr r0, [r0]
     cmp r0, #0
-    beq .part1_finish
+    beq .p1_done
 
     movs r1, #2
     ldr r3, ={hex(cfg['fn_save_data_save_table'] | 1)}
     blx r3
     cmp r0, #0
-    beq .part1_finish
-    str r0, [sp, #4]
+    beq .p1_done
+    adds r4, r0, #0
 
     ldr r0, ={hex(cfg['save_data_ptr'])}
     ldr r0, [r0]
     ldr r3, ={hex(cfg['fn_save_data_get_pc_storage'] | 1)}
     blx r3
     cmp r0, #0
-    beq .part1_finish
-    str r0, [sp, #0]
+    beq .p1_done
+    adds r7, r0, #0
 
-    ldr r0, [sp, #4]
-    ldr r5, [r0, #4]
+    ldr r5, [r4, #4]
+    cmp r5, #0
+    ble .p1_done
     subs r5, r5, #1
     bl #{hex(cfg['battle_end_part2_addr'])}
 
-.part1_finish:
-    ldr r0, [sp, #8]
-    ldr r1, [sp, #12]
-    ldr r2, [sp, #16]
-    add sp, #20
-    ldr r3, ={hex(cfg['fn_field_battle_transition_end'] | 1)}
-    blx r3
+.p1_done:
     pop {{r4, r5, r6, r7, pc}}
 """
         part2_code = f"""
 .thumb
 .align 2
 Custom_BattleEnd_Part2:
-    push {{r4, lr}}
+    push {{r4, r5, r6, r7, lr}}
+    sub sp, #4
+
 .party_loop:
     cmp r5, #0
-    blt .part2_done
+    blt .p2_done
 
-    ldr r0, [sp, #12]
+    adds r0, r4, #0
     adds r1, r5, #0
     ldr r3, ={hex(cfg['fn_party_get_pokemon_by_slot'] | 1)}
     blx r3
     cmp r0, #0
     beq .party_next
 
-    adds r4, r0, #0
+    str r0, [sp, #0]
     movs r1, #0xa3
     movs r2, #0
     ldr r3, ={hex(cfg['fn_pokemon_get_value'] | 1)}
@@ -329,7 +332,7 @@ Custom_BattleEnd_Part2:
 
     movs r6, #0
 .find_slot:
-    ldr r0, [sp, #8]
+    adds r0, r7, #0
     movs r1, #17
     adds r2, r6, #0
     ldr r3, ={hex(cfg['fn_pc_storage_get_box_pokemon'] | 1)}
@@ -348,18 +351,16 @@ Custom_BattleEnd_Part2:
     b .remove
 
 .transfer:
-    adds r1, r4, #0
+    ldr r1, [sp, #0]
     movs r2, #34
 .copy_loop:
-    ldr r3, [r1]
-    str r3, [r0]
-    adds r1, #4
-    adds r0, #4
-    subs r2, r2, #1
+    ldmia r1!, {{r3}}
+    stmia r0!, {{r3}}
+    subs r2, #1
     bne .copy_loop
 
 .remove:
-    ldr r0, [sp, #12]
+    adds r0, r4, #0
     adds r1, r5, #0
     ldr r3, ={hex(cfg['fn_party_remove_pokemon_by_slot'] | 1)}
     blx r3
@@ -368,8 +369,9 @@ Custom_BattleEnd_Part2:
     subs r5, r5, #1
     b .party_loop
 
-.part2_done:
-    pop {{r4, pc}}
+.p2_done:
+    add sp, #4
+    pop {{r4, r5, r6, r7, pc}}
 """
         b1 = self.asm.assemble_thumb(part1_code, cfg["battle_end_part1_addr"])
         b2 = self.asm.assemble_thumb(part2_code, cfg["battle_end_part2_addr"])
@@ -380,7 +382,7 @@ Custom_BattleEnd_Part2:
         if not cfg:
             cfg = UniversalResolver.resolve_permadeath(rom_handler)
 
-        arm9 = rom_handler.rom.arm9
+        arm9 = bytearray(rom_handler.rom.arm9)
         arm9_ram = rom_handler.rom.arm9RamAddress
 
         # 1. Update pl_item_data.narc to disable revive attributes
@@ -444,6 +446,13 @@ Custom_BattleEnd_Part2:
         blackout_bytes = self.generate_blackout_code(cfg, blackout_fn_addr)
         blackout_free_off = blackout_fn_addr - arm9_ram
         arm9[blackout_free_off : blackout_free_off + len(blackout_bytes)] = blackout_bytes
+
+        if "battle_end_part1_addr" in cfg and "battle_end_part2_addr" in cfg:
+            part1_bytes, part2_bytes = self.generate_battle_end_code(cfg)
+            p1_off = cfg["battle_end_part1_addr"] - arm9_ram
+            p2_off = cfg["battle_end_part2_addr"] - arm9_ram
+            arm9[p1_off : p1_off + len(part1_bytes)] = part1_bytes
+            arm9[p2_off : p2_off + len(part2_bytes)] = part2_bytes
 
         # 4. Hook 1: Party_HealAllMembers filter call (replaces bl Pokemon_GetValue)
         heal_hook_asm = f"""
@@ -526,29 +535,5 @@ nop
                 cfg["ov19_id"], ov19, bytes(new_data_19), new_ram_size=len(new_data_19)
             )
 
-        # 9. Automatic Faint Transfer on Battle End (ARM9 battle end hooks)
-        if "battle_end_hooks" in cfg and "battle_end_part1_addr" in cfg:
-            if "battle_end_expected" in cfg:
-                for idx, hook_addr in enumerate(cfg["battle_end_hooks"]):
-                    expected = cfg["battle_end_expected"][idx]
-                    h_off = hook_addr - arm9_ram
-                    curr = bytes(arm9[h_off : h_off + len(expected)])
-                    if curr != expected:
-                        raise RuntimeError(
-                            f"Hook mismatch at 0x{hook_addr:08X}! "
-                            f"Expected {expected.hex()}, got {curr.hex()}"
-                        )
-
-            part1_bytes, part2_bytes = self.generate_battle_end_code(cfg)
-            p1_off = cfg["battle_end_part1_addr"] - arm9_ram
-            p2_off = cfg["battle_end_part2_addr"] - arm9_ram
-            arm9[p1_off : p1_off + len(part1_bytes)] = part1_bytes
-            arm9[p2_off : p2_off + len(part2_bytes)] = part2_bytes
-
-            for hook_addr in cfg["battle_end_hooks"]:
-                hook_code = f"bl #{hex(cfg['battle_end_part1_addr'])}"
-                hook_bytes = self.asm.assemble_thumb(hook_code, hook_addr)
-                h_off = hook_addr - arm9_ram
-                arm9[h_off : h_off + len(hook_bytes)] = hook_bytes
-
+        rom_handler.rom.arm9 = bytes(arm9)
         return True

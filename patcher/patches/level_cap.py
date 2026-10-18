@@ -16,12 +16,37 @@ Gym Leader or Champion:
 When at or above the level cap, Pokemon do not gain EXP in battle.
 Any battle EXP gained that would push the Pokemon past the level cap is
 clamped exactly to the cap level with 0 surplus EXP.
+
+Runtime layout (CPUI):
+- Overlay 16 is patched strictly in-place (size stays 0x35AA0), with two BLs
+  into ARM9:
+    Hook 1 @ 0x02249184  `cmp r0, #100; bne` -> `bl CheckLevelCapHook`
+        The following `b 0x02249296` (skip EXP) at 0x02249188 is left intact:
+        it is also the target of the "mon has 0 HP" branch at 0x02249178.
+        The hook returns to it when level >= cap, or past it otherwise.
+    Hook 2 @ 0x02249242  `newExp = exp + gained` -> `mov r0, sp; bl ClampExpHook; mov r8, r8`
+        Returns with r2 = new EXP, which the overlay stores into the
+        BattleMon at 0x0224925E.
+- ARM9 routines live in unused tails of 0xB4-byte template records
+  (0x020F3xxx), the same family of slots used by the other patches.
+  Every write is checked to land on bytes that are zero in the clean ROM.
 """
 
 from .base import BasePatch
 from ..rom import RomHandler
 from ..arm_asm import Assembler
 from ..scanner import UniversalResolver
+
+
+# Level cap indexed by number of badges owned (0..8).
+LEVEL_CAPS = (14, 22, 26, 32, 37, 41, 44, 50, 62)
+
+# TrainerInfo / BattleSystem field offsets (verified on CPUI: see
+# BattleSystem_TrainerInfo @ 0x0223E2CC, TrainerInfo_HasBadge @ 0x02025FA4,
+# TrainerInfo_HasBeatenGame @ 0x02026060).
+BATTLESYS_TRAINER_INFO = 0x48
+TRAINER_INFO_BADGES = 0x1A
+TRAINER_INFO_FLAGS = 0x1D  # bit 0 = main story cleared
 
 
 class LevelCapPatch(BasePatch):
@@ -35,162 +60,155 @@ class LevelCapPatch(BasePatch):
         b"CPUI": {
             "overlay_id": 16,
             "hook1_addr": 0x02249184,
+            # cmp r0, #100 ; bne +0 ; b 0x02249296 (only the first 4 bytes are replaced)
             "hook1_expected": bytes.fromhex("642800d185e0"),
             "hook2_addr": 0x02249242,
             "hook2_expected": bytes.fromhex("13990e980a181392"),
-            "exp_skip_target": 0x02249297,  # Thumb address of 0x02249296
-            "save_data_ptr": 0x021C08F4,
-            "fn_save_get_trainer_info": 0x02025EA8,
             "fn_pokemon_get_value": 0x02074510,
-            "fn_pokemon_get_species_base_exp": 0x02075B70,
+            "fn_species_get_exp_at_level": 0x02075B70,
+            "get_cap_free_space_addr": 0x020F3D78,
+            "check_cap_free_space_addr": 0x020F3800,
+            "clamp_exp_free_space_addr": 0x020F3E50,
         }
     }
+
+    # Bytes available at each free-space slot (zero tails of the template records).
+    FREE_SPACE_LIMITS = {
+        "get_cap_free_space_addr": 0x70,
+        "check_cap_free_space_addr": 0x48,
+        "clamp_exp_free_space_addr": 0x4C,
+    }
+
+    HOOK1_PATCH_LEN = 4
 
     def __init__(self):
         self.asm = Assembler()
 
-    def generate_custom_code(self, cfg: dict, base_addr: int) -> tuple[bytes, int, int]:
-        """Generate GetLevelCap, CheckLevelCapHook, and ClampExpHook assembly."""
-        asm_code = f"""
-.thumb
-.align 2
-GetLevelCap:
-    push {{r4, r5, lr}}
-    cmp r0, #0
-    bne .from_battlesys
-    @ If battleSys is NULL, try sSaveDataPtr
-    ldr r0, ={hex(cfg['save_data_ptr'])}
-    ldr r0, [r0]
-    cmp r0, #0
-    beq .cap100
-    ldr r1, ={hex(cfg['fn_save_get_trainer_info'])}
-    blx r1
-    b .check_info
-.from_battlesys:
-    ldr r0, [r0, #0x48]
-.check_info:
-    cmp r0, #0
-    beq .cap100
-    @ Check if main story cleared (Cynthia beaten)
-    ldrb r1, [r0, #0x1d]
-    movs r2, #1
-    tst r1, r2
-    bne .cap100
-    @ Check badges (Coal: 0x01, Forest: 0x02, Cobble: 0x04, Fen: 0x08, Relic: 0x10, Mine: 0x20, Icicle: 0x40, Beacon: 0x80)
-    ldrb r1, [r0, #0x1a]
-    movs r2, #0x01
-    tst r1, r2
-    beq .cap14
-    movs r2, #0x02
-    tst r1, r2
-    beq .cap22
-    movs r2, #0x10
-    tst r1, r2
-    beq .cap26
-    movs r2, #0x0c
-    tst r1, r2
-    beq .cap32
-    movs r3, #0x0c
-    ands r3, r1
-    cmp r3, #0x0c
-    bne .cap37
-    movs r2, #0x20
-    tst r1, r2
-    beq .cap41
-    movs r2, #0x40
-    tst r1, r2
-    beq .cap44
-    movs r2, #0x80
-    tst r1, r2
-    beq .cap50
-    movs r0, #62
-    pop {{r4, r5, pc}}
-.cap14:
-    movs r0, #14
-    pop {{r4, r5, pc}}
-.cap22:
-    movs r0, #22
-    pop {{r4, r5, pc}}
-.cap26:
-    movs r0, #26
-    pop {{r4, r5, pc}}
-.cap32:
-    movs r0, #32
-    pop {{r4, r5, pc}}
-.cap37:
-    movs r0, #37
-    pop {{r4, r5, pc}}
-.cap41:
-    movs r0, #41
-    pop {{r4, r5, pc}}
-.cap44:
-    movs r0, #44
-    pop {{r4, r5, pc}}
-.cap50:
-    movs r0, #50
-    pop {{r4, r5, pc}}
-.cap100:
+    def _assemble_get_cap(self, base: int) -> bytes:
+        """GetLevelCap(BattleSystem *r0) -> r0 = cap. Leaf, clobbers r0-r3 only.
+
+        Reads the player's TrainerInfo directly from the BattleSystem (no
+        SaveData access, no heap, no calls) and maps badge count -> cap.
+        """
+        def build(table_addr: int) -> bytes:
+            return self.asm.assemble_thumb(f"""
+    ldr  r0, [r0, #{BATTLESYS_TRAINER_INFO:#x}]
+    cmp  r0, #0
+    beq  .nocap
+    ldrb r1, [r0, #{TRAINER_INFO_FLAGS:#x}]
+    lsls r1, r1, #31
+    bne  .nocap
+    ldrb r1, [r0, #{TRAINER_INFO_BADGES:#x}]
+    movs r2, #0
+.count:
+    cmp  r1, #0
+    beq  .lookup
+    subs r3, r1, #1
+    ands r1, r3
+    adds r2, #1
+    b    .count
+.lookup:
+    ldr  r0, ={table_addr:#x}
+    ldrb r0, [r0, r2]
+    bx   lr
+.nocap:
     movs r0, #100
-    pop {{r4, r5, pc}}
+    bx   lr
+""", base)
 
-.align 2
-CheckLevelCapHook:
-    push {{r4, lr}}
-    adds r1, r0, #0
-    ldr r0, [r4, #0]
-    bl GetLevelCap
-    cmp r1, r0
-    bhs .skip_exp
-    pop {{r4, pc}}
-.skip_exp:
-    pop {{r4}}
-    pop {{r3}}
-    ldr r0, ={hex(cfg['exp_skip_target'])}
-    bx r0
+        # Literal size does not depend on its value: first pass gives the length.
+        code_len = len(build(base))
+        table_addr = base + ((code_len + 3) & ~3)
+        code = build(table_addr)
+        assert len(code) == code_len
+        return code.ljust(table_addr - base, b"\x00") + bytes(LEVEL_CAPS)
 
-.align 2
-ClampExpHook:
-    push {{r4, r5, r6, r7, lr}}
+    def _assemble_check_cap(self, base: int, get_cap_addr: int) -> bytes:
+        """Hook 1 body. In: r0 = current level, r4 = EXP task data, lr = 0x02249189.
+
+        level >= cap -> return to lr (the original `b skip_exp`)
+        level <  cap -> return to lr + 2 (normal EXP calculation)
+        """
+        return self.asm.assemble_thumb(f"""
+    push {{r0, lr}}
+    ldr  r0, [r4, #0]
+    bl   #{get_cap_addr:#x}
+    pop  {{r1, r2}}
+    cmp  r1, r0
+    bhs  .at_cap
+    adds r2, #2
+.at_cap:
+    bx   r2
+""", base)
+
+    def _assemble_clamp_exp(self, base: int, get_cap_addr: int, cfg: dict) -> bytes:
+        """Hook 2 body. In: r0 = caller sp, r4 = EXP task data, r6 = Pokemon*.
+
+        Caller frame: [sp+0x4C] = current EXP, [sp+0x38] = EXP gained.
+        Out: [sp+0x4C] = r2 = new EXP, [sp+0x38] = gained (clamped).
+        Six registers are pushed so sp stays 8-byte aligned for the callees.
+        """
+        return self.asm.assemble_thumb(f"""
+    push {{r3, r4, r5, r6, r7, lr}}
     adds r7, r0, #0
-    ldr r5, [r7, #0x4c]
-    ldr r1, [r7, #0x38]
-    adds r2, r5, r1
-    ldr r0, [r4, #0]
-    bl GetLevelCap
-    cmp r0, #100
-    bge .done_clamp
+    ldr  r5, [r7, #0x4c]
+    ldr  r0, [r4, #0]
+    bl   #{get_cap_addr:#x}
+    cmp  r0, #100
+    bhs  .no_clamp
     adds r4, r0, #0
     adds r0, r6, #0
     movs r1, #5
     movs r2, #0
-    ldr r3, ={hex(cfg['fn_pokemon_get_value'])}
-    blx r3
+    ldr  r3, ={cfg['fn_pokemon_get_value'] | 1:#x}
+    blx  r3
     adds r1, r4, #0
-    ldr r3, ={hex(cfg['fn_pokemon_get_species_base_exp'])}
-    blx r3
-    ldr r1, [r7, #0x38]
+    ldr  r3, ={cfg['fn_species_get_exp_at_level'] | 1:#x}
+    blx  r3
+    ldr  r1, [r7, #0x38]
     adds r2, r5, r1
-    cmp r2, r0
-    blo .done_clamp
+    cmp  r2, r0
+    bls  .store
+    cmp  r5, r0
+    bhs  .no_gain
+    subs r1, r0, r5
     adds r2, r0, #0
-    subs r1, r2, r5
-    bge .store_total
+    b    .store_gain
+.no_gain:
     movs r1, #0
-.store_total:
-    str r1, [r7, #0x38]
-.done_clamp:
-    str r2, [r7, #0x4c]
-    pop {{r4, r5, r6, r7, pc}}
-"""
-        raw_bytes = self.asm.assemble_thumb(asm_code, base_addr)
+    adds r2, r5, #0
+.store_gain:
+    str  r1, [r7, #0x38]
+    b    .store
+.no_clamp:
+    ldr  r1, [r7, #0x38]
+    adds r2, r5, r1
+.store:
+    str  r2, [r7, #0x4c]
+    pop  {{r3, r4, r5, r6, r7, pc}}
+""", base)
 
-        # Offsets inside the assembled block:
-        # GetLevelCap is at +0x00
-        # CheckLevelCapHook is at +0x80
-        # ClampExpHook is at +0x98
-        hook1_fn_addr = base_addr + 0x80
-        hook2_fn_addr = base_addr + 0x98
-        return raw_bytes, hook1_fn_addr, hook2_fn_addr
+    def generate_custom_code(self, cfg: dict) -> tuple[bytes, bytes, bytes]:
+        """Generate GetLevelCap, CheckLevelCapHook, and ClampExpHook for ARM9."""
+        get_cap_addr = cfg["get_cap_free_space_addr"]
+        b_get_cap = self._assemble_get_cap(get_cap_addr)
+        b_check_cap = self._assemble_check_cap(cfg["check_cap_free_space_addr"], get_cap_addr)
+        b_clamp_exp = self._assemble_clamp_exp(cfg["clamp_exp_free_space_addr"], get_cap_addr, cfg)
+        return b_get_cap, b_check_cap, b_clamp_exp
+
+    def _write_free_space(self, arm9: bytearray, arm9_ram: int, key: str, addr: int, code: bytes):
+        limit = self.FREE_SPACE_LIMITS.get(key)
+        if limit is not None and len(code) > limit:
+            raise RuntimeError(
+                f"{key}: routine is {len(code):#x} bytes, slot at 0x{addr:08X} holds {limit:#x}"
+            )
+        off = addr - arm9_ram
+        current = bytes(arm9[off : off + len(code)])
+        if current != code and any(current):
+            raise RuntimeError(
+                f"{key}: ARM9 free space at 0x{addr:08X} is not empty, refusing to overwrite game data"
+            )
+        arm9[off : off + len(code)] = code
 
     def apply(self, rom_handler: RomHandler) -> bool:
         cfg = self.CONFIG.get(rom_handler.game_code)
@@ -199,7 +217,9 @@ ClampExpHook:
 
         ov16 = rom_handler.load_arm9_overlay(cfg["overlay_id"])
         ov16_ram = ov16.ramAddress
-        orig_size = len(ov16.data)
+        orig_len = len(ov16.data)
+        arm9 = bytearray(rom_handler.rom.arm9)
+        arm9_ram = rom_handler.rom.arm9RamAddress
 
         # 1. Verify original instructions at hook locations
         h1_off = cfg["hook1_addr"] - ov16_ram
@@ -216,38 +236,36 @@ ClampExpHook:
                 f"Hook 2 mismatch at 0x{cfg['hook2_addr']:08X}! Expected {cfg['hook2_expected'].hex()}, got {h2_curr.hex()}"
             )
 
-        # 2. Append custom code at the end of Overlay 16
-        custom_base_addr = ov16_ram + orig_size
-        code_bytes, hook1_fn, hook2_fn = self.generate_custom_code(cfg, custom_base_addr)
+        # 2. Write custom code to ARM9 free space
+        b_get_cap, b_check_cap, b_clamp_exp = self.generate_custom_code(cfg)
+        for key, code in (
+            ("get_cap_free_space_addr", b_get_cap),
+            ("check_cap_free_space_addr", b_check_cap),
+            ("clamp_exp_free_space_addr", b_clamp_exp),
+        ):
+            self._write_free_space(arm9, arm9_ram, key, cfg[key], code)
+        rom_handler.rom.arm9 = bytes(arm9)
 
-        # Pad custom code to 512 bytes for alignment
-        padding = (512 - (len(code_bytes) % 512)) % 512
-        new_data = bytes(ov16.data) + code_bytes + (b"\x00" * padding)
-        new_size = len(new_data)
-
-        # 3. Assemble hooks
-        hook1_code = f"""
-bl {hex(hook1_fn)}
-nop
-"""
-        hook1_bytes = self.asm.assemble_thumb(hook1_code, cfg["hook1_addr"])
-        assert len(hook1_bytes) == len(cfg["hook1_expected"])
+        # 3. Assemble hooks in Overlay 16
+        hook1_bytes = self.asm.assemble_thumb(
+            f"bl #{cfg['check_cap_free_space_addr']:#x}", cfg["hook1_addr"]
+        )
+        assert len(hook1_bytes) == self.HOOK1_PATCH_LEN
 
         hook2_code = f"""
-add r0, sp, #0
-bl {hex(hook2_fn)}
-nop
+mov r0, sp
+bl #{cfg['clamp_exp_free_space_addr']:#x}
+mov r8, r8
 """
         hook2_bytes = self.asm.assemble_thumb(hook2_code, cfg["hook2_addr"])
         assert len(hook2_bytes) == len(cfg["hook2_expected"])
 
-        # 4. Patch hooks into overlay data
-        patched_data = bytearray(new_data)
+        # 4. Patch hooks into overlay data (in-place, NO overlay expansion)
+        patched_data = bytearray(ov16.data)
         patched_data[h1_off : h1_off + len(hook1_bytes)] = hook1_bytes
         patched_data[h2_off : h2_off + len(hook2_bytes)] = hook2_bytes
+        assert len(patched_data) == orig_len
 
-        # 5. Save updated overlay to ROM
-        rom_handler.update_arm9_overlay(
-            cfg["overlay_id"], ov16, patched_data, new_ram_size=new_size
-        )
+        # 5. Save updated overlay to ROM preserving exact original ramSize
+        rom_handler.update_arm9_overlay(cfg["overlay_id"], ov16, patched_data)
         return True

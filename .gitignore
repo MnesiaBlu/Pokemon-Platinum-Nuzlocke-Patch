@@ -21,3 +21,6 @@ venv/
 # Temporary / OS
 .DS_Store
 Thumbs.db
+
+# Emulator (local testing only)
+BizHawk*/
