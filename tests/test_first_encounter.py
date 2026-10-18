@@ -26,9 +26,13 @@ class TestFirstEncounterPatch(unittest.TestCase):
         success = patch.apply(handler)
         self.assertTrue(success)
 
-        # Reload overlay and check modifications
+        # Reload overlay and check modifications (Overlay 16 preserved in-place, NO expansion)
         ov16_after = handler.load_arm9_overlay(cfg["overlay_id"])
-        self.assertGreater(len(ov16_after.data), orig_len)
+        self.assertEqual(len(ov16_after.data), orig_len)
+
+        # Verify battle routines written to ARM9 free space
+        init_off = cfg["battle_init_free_space_addr"] - handler.rom.arm9RamAddress
+        self.assertNotEqual(bytes(handler.rom.arm9[init_off : init_off + 36]), b"\x00" * 36)
 
         # Verify hook 1 (battle init) was patched
         h1_off = cfg["hook_init_addr"] - ov16_after.ramAddress
@@ -74,8 +78,8 @@ class TestFirstEncounterPatch(unittest.TestCase):
         self.assertTrue(p2.apply(handler))
 
         ov16_final = handler.load_arm9_overlay(16)
-        # Should have expanded by both patches (each padded to 512 bytes)
-        self.assertEqual(len(ov16_final.data), orig_len + 1024)
+        # Overlay 16 must NOT expand beyond 219808 to avoid heap collision
+        self.assertEqual(len(ov16_final.data), orig_len)
 
 
 if __name__ == "__main__":

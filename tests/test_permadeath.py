@@ -62,7 +62,7 @@ class TestPermadeathPatch(unittest.TestCase):
         self.assertNotEqual(bytes(handler.rom.arm9[blackout_free_off : blackout_free_off + 32]), b"\x00" * 32)
 
         p1_off = cfg["battle_end_part1_addr"] - arm9_ram
-        self.assertNotEqual(bytes(handler.rom.arm9[p1_off : p1_off + 88]), b"\x00" * 88)
+        self.assertNotEqual(bytes(handler.rom.arm9[p1_off : p1_off + 68]), b"\x00" * 68)
 
         p2_off = cfg["battle_end_part2_addr"] - arm9_ram
         self.assertNotEqual(bytes(handler.rom.arm9[p2_off : p2_off + 108]), b"\x00" * 108)
@@ -92,12 +92,6 @@ class TestPermadeathPatch(unittest.TestCase):
         ov5 = handler.load_arm9_overlay(5)
         self.assertEqual(len(ov5.data), 201664)
 
-        # 7. Verify Battle End Hooks in ARM9
-        for idx, hook_addr in enumerate(cfg["battle_end_hooks"]):
-            h_off = hook_addr - arm9_ram
-            curr = bytes(handler.rom.arm9[h_off : h_off + 4])
-            self.assertNotEqual(curr, cfg["battle_end_expected"][idx])
-
     def test_apply_all_patches(self):
         """Verify all three Nuzlocke patches can be applied together."""
         handler = RomHandler(self.rom_path)
@@ -108,6 +102,11 @@ class TestPermadeathPatch(unittest.TestCase):
         self.assertTrue(p1.apply(handler))
         self.assertTrue(p2.apply(handler))
         self.assertTrue(p3.apply(handler))
+
+        # Crucial check: Overlay 16 must NOT be expanded beyond 219808
+        ov16 = handler.load_arm9_overlay(16)
+        self.assertEqual(len(ov16.data), 219808)
+        self.assertEqual(ov16.ramSize, 219808)
 
 
 if __name__ == "__main__":

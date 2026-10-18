@@ -328,6 +328,9 @@ class UniversalResolver:
             "fn_map_header_get_label_text_id": fn_map_header_get_label_text_id,
             "fn_save_data_get_pc_storage": fn_save_data_get_pc_storage,
             "fn_pc_storage_get_box_pokemon": fn_pc_storage_get_box_pokemon,
+            "battle_init_free_space_addr": 0x020F3B80,
+            "check_route_free_space_addr": 0x020F94B8,
+            "calc_shakes_free_space_addr": 0x020F3F08,
             "banner_free_space_addr": 0x020F9408,
         }
 
@@ -356,11 +359,12 @@ class UniversalResolver:
         fn_party_get_pokemon_by_slot = PatternScanner.decode_thumb_bl(arm9[item_match+8:item_match+12], arm9_ram + item_match + 8)
         fn_pokemon_check_item_effects = PatternScanner.decode_thumb_bl(arm9[item_off:item_off+4], item_addr)
 
-        # Blackout / Game Over: entry of Field_PlayerLostBattle / blackout penalty
+        # Blackout / Game Over: Field_ProcessBattleResult hook
         blackout_off = PatternScanner.find_pattern(arm9, "38 b5 04 1c 08 68 04 23 ?? 69 03 42")
         if blackout_off is None:
             raise RuntimeError("Could not find Blackout signature in ARM9")
-        hook_blackout_addr = arm9_ram + blackout_off
+        hook_blackout_addr = arm9_ram + blackout_off + 4
+        hook_blackout_expected = bytes(arm9[blackout_off + 4 : blackout_off + 8])
 
         # SaveData_Erase in ARM9
         erase_off = PatternScanner.find_pattern(arm9, "f8 b5 01 21 00 90 03 20 09 03")
@@ -380,15 +384,6 @@ class UniversalResolver:
             save_data_ptr = struct.unpack("<I", arm9[save_ptr_off + 20 : save_ptr_off + 24])[0]
         else:
             save_data_ptr = 0x021C08F4
-
-        # Battle end hooks in ARM9 (Trainer battle end & Wild battle end)
-        battle_end_matches = PatternScanner.find_all_patterns(arm9, "03 49 28 1c ?? ?? ?? ?? f8 bd")
-        if not battle_end_matches or len(battle_end_matches) < 2:
-            raise RuntimeError("Could not find battle end hook signatures in ARM9")
-        battle_end_hooks = [arm9_ram + m + 4 for m in battle_end_matches]
-        fn_field_battle_transition_end = (
-            PatternScanner.decode_thumb_bl(arm9[battle_end_matches[0]+4:battle_end_matches[0]+8], battle_end_hooks[0]) | 1
-        )
 
         # Party_RemovePokemonBySlot in ARM9
         m_remove = PatternScanner.find_pattern(arm9, "f8 b5 07 1c 0c 1c 01 d5")
@@ -439,8 +434,6 @@ class UniversalResolver:
         else:
             fn_save_data_save_table = 0x0202462D
 
-        battle_end_expected = [bytes(arm9[m + 4 : m + 8]) for m in battle_end_matches]
-
         return {
             "party_heal_hook_addr": heal_addr,
             "party_heal_expected": bytes(arm9[heal_off + 0x22 : heal_off + 0x26]),
@@ -449,7 +442,7 @@ class UniversalResolver:
             "item_check_expected": bytes(arm9[item_off : item_off + 4]),
             "item_check_free_space_addr": 0x020F3454,
             "hook_blackout_addr": hook_blackout_addr,
-            "hook_blackout_expected": bytes(arm9[blackout_off : blackout_off + 4]),
+            "hook_blackout_expected": hook_blackout_expected,
             "blackout_free_space_addr": 0x020F32EC,
             "fn_save_data_erase": fn_save_data_erase,
             "fn_soft_reset": fn_soft_reset,
@@ -463,11 +456,8 @@ class UniversalResolver:
             "fn_pokemon_check_item_effects": fn_pokemon_check_item_effects,
             "revive_item_ids": [28, 29, 37, 44],
             "rare_candy_id": 50,
-            "battle_end_hooks": battle_end_hooks,
-            "battle_end_expected": battle_end_expected,
             "battle_end_part1_addr": 0x020F3184,
             "battle_end_part2_addr": 0x020F3238,
-            "fn_field_battle_transition_end": fn_field_battle_transition_end,
             "fn_party_remove_pokemon_by_slot": fn_party_remove_pokemon_by_slot,
             "fn_save_data_save_table": fn_save_data_save_table,
             "fn_save_data_get_pc_storage": fn_save_data_get_pc_storage,
