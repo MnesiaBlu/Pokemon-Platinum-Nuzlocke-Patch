@@ -1,6 +1,6 @@
 # Pokémon Platinum Nuzlocke Patcher
 
-A modular Python toolkit to generate a patched ROM of **Pokémon Platinum Version** (universal support: Italian `CPUI`, US/English `CPUE`, French `CPUF`, German `CPUD`, Spanish `CPUS`) with standard Nuzlocke challenge rules enforced directly at the game engine level.
+A modular Python toolkit to generate a patched ROM of **Pokémon Platinum Version** (tested on Italian `CPUI`; experimental support for US/English `CPUE`, French `CPUF`, German `CPUD`, Spanish `CPUS`) with standard Nuzlocke challenge rules enforced directly at the game engine level.
 
 > [!NOTE]
 > - **AI-Assisted Development**: This project, including its reverse-engineering analysis, ARM/Thumb assembly patches, Python patching scripts, and documentation, was developed with the assistance of Artificial Intelligence (AI).
@@ -16,7 +16,7 @@ A modular Python toolkit to generate a patched ROM of **Pokémon Platinum Versio
   pip install -r requirements.txt
   ```
   Core libraries used:
-  - [`ndspy`](https://github.com/RoadrunnerW/ndspy): Disassembly, manipulation, and repackaging of NDS ROMs, file systems, and overlays.
+  - [`ndspy`](https://github.com/RoadrunnerWMC/ndspy): Disassembly, manipulation, and repackaging of NDS ROMs, file systems, and overlays.
   - [`keystone-engine`](https://www.keystone-engine.org/): Dynamic on-the-fly ARM/Thumb assembly generation.
   - [`capstone`](https://www.capstone-engine.org/): Disassembly and memory instruction verification.
 
@@ -38,8 +38,10 @@ Prevents party Pokémon from exceeding the level of the upcoming Gym Leader's or
 - **Post-Game (Main story completed):** Level cap uncapped to **100**
 
 #### Technical Details:
-1. At the beginning of battle experience distribution (`BattleScript_GetExpTask`), the Pokémon's current level is evaluated against the dynamically calculated level cap based on badges stored in `TrainerInfo`. If the Pokémon has reached or exceeded the cap, gained EXP is set to 0 and the loop terminates immediately.
-2. If a Pokémon is below the cap but the EXP rewarded would cause it to level up past the cap, the awarded EXP is clamped to the exact threshold needed to reach the cap with 0 excess points.
+1. The cap is computed from the number of badges in the player's `TrainerInfo` (read directly from the `BattleSystem`, no save-data access); once the main story is cleared the cap becomes 100.
+2. During battle EXP distribution (Overlay 16), a Pokémon whose level has reached the cap skips the EXP calculation entirely, exactly like a vanilla Lv 100 Pokémon. Fainted Pokémon never receive EXP.
+3. If a Pokémon is below the cap but the EXP rewarded would push it past the cap, the awarded EXP is clamped to the exact threshold of the cap level with 0 excess points; the in-battle "gained X Exp. Points" message shows the clamped amount.
+4. Overlay 16 is patched strictly in place (no size change); the custom routines live in ARM9.
 
 ### 2. First Encounter Only (`feature/first-encounter`)
 Enforces the authentic Nuzlocke rule: the very first wild Pokémon encountered on a route or area is the player's **only** chance to catch a Pokémon there.
@@ -69,15 +71,16 @@ Enforces permanent faint / death mechanics across all recovery pathways:
   - The universal party healing function (`Party_HealAllMembers`), invoked by Nurse Joy, mothers, beds, and overworld doctors, detects party members with 0 HP and skips healing them.
   - Fainted Pokémon remain at 0 HP, with fainted status and unmodified PP.
 - **Unmovable Graveyard (Box 18 "CIMITERO")**:
-  - **Automatic Faint Transfer at Battle End**: Upon exiting any battle (Wild or Trainer) in which one or more party Pokémon fainted, `Custom_BattleEndTransition` in Overlay 5 scans the player's party:
+  - **Automatic Faint Transfer at Battle End**: Upon exiting any battle (Wild or Trainer) in which one or more party Pokémon fainted, a hook in `Field_ProcessBattleResult` (ARM9) scans the player's party:
     - Each fallen Pokémon (curHP = 0) is automatically transferred to the first available slot in Box 18 and removed from the active party with `Party_RemovePokemonBySlot`.
     - Surviving party members remain intact in the player's party.
   - **Box 18 Dedicated "CIMITERO"**: Box 18 is permanently renamed **"CIMITERO"** in ARM9 via `PCStorage_GetBoxName`.
   - **Inamovibile (Sealed Graveyard)**: The master PC Storage interaction validator in Overlay 19 (`Custom_GetBoxPokemon_OrGraveyardBlock`) intercepts all cursor actions in Box 18. Pokémon inside Box 18 cannot be withdrawn, moved, swapped, deposited, or released. The fallen Pokémon are permanently sealed in memorial.
 - **Hardcore Game Over on Blackout (Ironman Mode)**:
   - If all Pokémon in the party faint (a total party blackout/whiteout):
-    - The blackout handler (`Field_PlayerLostBattle`) is intercepted by `Custom_BlackoutGameOver`.
-    - The engine invokes `SaveData_Erase` to completely wipe all 64 sectors of Flash memory (both primary and backup save blocks).
+    - The battle result handler (`Field_ProcessBattleResult`) detects the lost battle outcome.
+    - This applies to **every** lost battle, including the first rival battle against Barry on Route 201 that vanilla lets you lose.
+    - The engine invokes `SaveData_Erase` to wipe the save data (both primary and backup save blocks).
     - The console executes a clean hardware soft reset (`SoftReset`) directly back to the Title Screen.
     - Because the save file has been wiped, the run is permanently over: the Title Screen displays no "Continue" option, only "New Game".
 
@@ -89,15 +92,15 @@ Determines the player's mandatory starter Pokémon based on the final digit of t
 - **Last digit 0:** **Player's choice** (free selection among all three)
 
 #### Technical Details:
-1. In the Lake Verity briefcase scene (Overlay 78, `choose_starter`), the cursor is initialized directly on the assigned Poké Ball.
+1. In the briefcase scene on Route 201 (Overlay 78, `choose_starter`), the cursor is initialized directly on the assigned Poké Ball.
 2. D-Pad Left/Right navigation (`ChangePokeballChoice`) is locked to the assigned Poké Ball if the digit is 1–9, preventing the player from scrolling to another starter.
-3. At the confirmation dialog and exit routine (`GetSelectedSpecies` / `ChooseStarter_Exit`), the species is strictly returned according to the TID (Turtwig: 387, Chimchar: 390, Piplup: 393), keeping the dialogue, delivery, Starly battle, and rival Barry's team perfectly synchronized.
+3. At the confirmation dialog and exit routine (`GetSelectedSpecies` / `ChooseStarter_Exit`), the species is strictly returned according to the TID (Turtwig: 387, Chimchar: 390, Piplup: 393), keeping the dialogue, delivery, and the immediate rival battle against Barry (with his counter-type starter) perfectly synchronized.
 
 ### 5. Universal Pattern Scanner (`feature/universal-pattern-scanner`)
 Provides dynamic hook and symbol resolution across different game revisions and language releases of Pokémon Platinum (`CPUI`, `CPUE`, `CPUF`, `CPUD`, `CPUS`, etc.):
 - **Dynamic Pattern Matching**: Scans binary code in ARM9 and code overlays (`overlay_0016`, `overlay_0078`) using fuzzy wildcard signatures rather than rigid hardcoded offsets.
 - **Instruction Branch Disassembly**: Automatically decodes ARM/Thumb branch instructions (`BL` and `B`) to locate target subroutines (`Party_GetCurrentCount`, `ChangePokeballChoice`, `Battle_CalcCatchShakes`).
-- **Zero Configuration Needed**: Run the patcher on any standard Platinum ROM — the scanner automatically identifies memory addresses, literal pool pointers, and overlay structures.
+- **Version Support Status**: Tested on the Italian release (`CPUI`). Other releases are **experimental**: hooks and function addresses are resolved by the scanner, but the ARM9 free-space slots used for custom routines (and a few fallback addresses) are currently mapped only for `CPUI`. The patcher refuses to write if a slot is not empty instead of corrupting game data.
 
 ---
 

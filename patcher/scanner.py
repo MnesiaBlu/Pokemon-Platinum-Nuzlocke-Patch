@@ -179,29 +179,35 @@ class UniversalResolver:
         ov16_ram = ov16.ramAddress
         ov16_data = bytes(ov16.data)
 
-        # Hook 1: cmp r0, #100; bne ...; b exp_skip_target
-        h1_off = PatternScanner.find_pattern(ov16_data, "64 28 00 d1 ?? e0")
+        # Hook 1: bl Pokemon_GetValue(mon, MON_DATA_LEVEL); cmp r0, #100; bne ...; b skip_exp
+        h1_off = PatternScanner.find_pattern(ov16_data, "a1 21 00 22 ?? ?? ?? ?? 64 28 00 d1 ?? e0")
         if h1_off is None:
             raise RuntimeError("Could not find LevelCap Hook 1 signature in Overlay 16")
+        fn_pokemon_get_value = PatternScanner.decode_thumb_bl(
+            ov16_data[h1_off + 4 : h1_off + 8], ov16_ram + h1_off + 4
+        )
+        h1_off += 8
         h1_addr = ov16_ram + h1_off
-        b_target = PatternScanner.decode_thumb_b(ov16_data[h1_off + 4 : h1_off + 6], h1_addr + 4)
-        exp_skip_target = b_target | 1  # Thumb mode bit
 
-        # Hook 2: Exp clamping hook before level up
+        # Hook 2: newExp = exp + gained, right after bl Pokemon_GetCurrentLevelBaseExp(mon)
         h2_off = PatternScanner.find_pattern(ov16_data, "13 99 0e 98 0a 18 13 92")
         if h2_off is None:
             raise RuntimeError("Could not find LevelCap Hook 2 signature in Overlay 16")
         h2_addr = ov16_ram + h2_off
 
-        # Core functions in ARM9
         arm9 = bytes(rom_handler.rom.arm9)
         arm9_ram = rom_handler.rom.arm9RamAddress
 
-        trainer_info_off = PatternScanner.find_pattern(arm9, "08 b5 01 21 ?? ?? ?? ?? 00 1d 08 bd")
-        fn_save_get_trainer_info = arm9_ram + trainer_info_off if trainer_info_off else 0x02025EA8
-
-        save_ptr_off = PatternScanner.find_pattern(arm9, "08 b5 04 48 00 68 00 28 ?? d1 ?? ?? ?? ?? 01 48 00 68 08 bd")
-        save_data_ptr = struct.unpack("<I", arm9[save_ptr_off + 20 : save_ptr_off + 24])[0] if save_ptr_off else 0x021C08F4
+        # Pokemon_GetCurrentLevelBaseExp(mon) tail-calls Species_GetExpAtLevel(species, level)
+        # with a BL at +0x1C.
+        bl_off = h2_off - 10
+        fn_cur_level_base_exp = PatternScanner.decode_thumb_bl(
+            ov16_data[bl_off : bl_off + 4], ov16_ram + bl_off
+        )
+        inner = fn_cur_level_base_exp - arm9_ram + 0x1C
+        fn_species_get_exp_at_level = PatternScanner.decode_thumb_bl(
+            arm9[inner : inner + 4], fn_cur_level_base_exp + 0x1C
+        )
 
         return {
             "overlay_id": 16,
@@ -209,11 +215,13 @@ class UniversalResolver:
             "hook1_expected": bytes(ov16_data[h1_off : h1_off + 6]),
             "hook2_addr": h2_addr,
             "hook2_expected": bytes(ov16_data[h2_off : h2_off + 8]),
-            "exp_skip_target": exp_skip_target,
-            "save_data_ptr": save_data_ptr,
-            "fn_save_get_trainer_info": fn_save_get_trainer_info,
-            "fn_pokemon_get_value": 0x02074510,
-            "fn_pokemon_get_species_base_exp": 0x02075B70,
+            "fn_pokemon_get_value": fn_pokemon_get_value,
+            "fn_species_get_exp_at_level": fn_species_get_exp_at_level,
+            # Free-space slots are only mapped for CPUI; on other builds
+            # LevelCapPatch refuses to write if the slot is not empty.
+            "get_cap_free_space_addr": 0x020F3D78,
+            "check_cap_free_space_addr": 0x020F3800,
+            "clamp_exp_free_space_addr": 0x020F3E50,
         }
 
     @classmethod

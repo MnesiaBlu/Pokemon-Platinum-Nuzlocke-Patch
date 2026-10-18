@@ -64,7 +64,8 @@ class TestUniversalResolver(unittest.TestCase):
         self.assertEqual(cfg["overlay_id"], 16)
         self.assertEqual(cfg["hook1_addr"], 0x02249184)
         self.assertEqual(cfg["hook2_addr"], 0x02249242)
-        self.assertEqual(cfg["exp_skip_target"], 0x02249297)
+        self.assertEqual(cfg["fn_pokemon_get_value"], 0x02074510)
+        self.assertEqual(cfg["fn_species_get_exp_at_level"], 0x02075B70)
 
     def test_resolve_first_encounter(self):
         handler = RomHandler(self.rom_path)
